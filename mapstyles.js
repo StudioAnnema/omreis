@@ -64,11 +64,12 @@
   }
   // Racekaart: alles donker en vlak, alleen het spoor en de wegen als dunne lijnen.
   function circuit(map) {
-    ['building', 'landuse_residential', 'aeroway-area', 'aeroway-runway', 'aeroway-runway-casing', 'highway-shield-non-us', 'label_other', 'water_name_point_label', 'water_name_line_label'].forEach(id => { try { map.setLayoutProperty(id, 'visibility', 'none'); } catch (e) {} });
+    ['park', 'landuse_residential', 'aeroway-area', 'aeroway-runway', 'aeroway-runway-casing', 'highway-shield-non-us', 'label_other', 'water_name_point_label', 'water_name_line_label'].forEach(id => { try { map.setLayoutProperty(id, 'visibility', 'none'); } catch (e) {} });
     try {
       map.setLayerZoomRange('railway', 7, 24);
-      map.setPaintProperty('railway', 'line-width', ['interpolate', ['linear'], ['zoom'], 7, 1, 12, 2.2, 16, 3.5]);
-      map.setLayerZoomRange('highway_minor', 13.5, 24);
+      map.setLayerZoomRange('building', 15.5, 24); map.setPaintProperty('building', 'fill-color', '#ECE8F5');   // pas zichtbaar op loopniveau
+      map.setPaintProperty('railway', 'line-width', ['interpolate', ['linear'], ['zoom'], 7, 1.4, 12, 3.2, 16, 5.5]);
+      map.setLayerZoomRange('highway_minor', 14.5, 24);
       map.setPaintProperty('highway_minor', 'line-width', ['interpolate', ['linear'], ['zoom'], 13.5, 0.6, 18, 5]);
       map.setPaintProperty('highway_major_inner', 'line-width', ['interpolate', ['linear'], ['zoom'], 10, 0.8, 18, 9]);
       map.setLayerZoomRange('highway-name-major', 14.5, 24);
@@ -76,8 +77,8 @@
   }
   window.OMREIS_MAPS = {
     circuit: {
-      label: 'Circuit', note: 'Licht en strak als een live racekaart: lijnen en voertuigen springen eruit', style: OFM + 'positron', pitch: 0,
-      tweak: m => { recolor(m, { land: '#F6F4FB', water: '#C6D6FF', green: '#E6F2CF', built: '#F6F4FB', building: '#F6F4FB', rail: '#5B2EFF', road: '#D9D2EC', text: '#3A3160' }); declutter(m, '#C4B9E8'); circuit(m); }
+      label: 'Lijnennet', note: 'Spoor en buslijnen voorop, de rest van de kaart op de achtergrond', style: OFM + 'positron', pitch: 0,
+      tweak: m => { recolor(m, { land: '#F8F7FC', water: '#DCE6FF', green: '#F8F7FC', built: '#F8F7FC', building: '#F8F7FC', rail: '#2B1A66', road: '#ECE8F5', text: '#5A5280' }); declutter(m, '#E4DEF2'); circuit(m); }
     },
     liberty: { label: 'Kleur', note: 'Zoals een gewone wegenkaart, alle kleuren', style: OFM + 'liberty' },
     bright: { label: 'Fris', note: 'Helder en contrastrijk, gele hoofdwegen', style: OFM + 'bright' },

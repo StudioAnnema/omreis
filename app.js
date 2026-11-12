@@ -112,8 +112,10 @@ function initMap() {
   map.on('load', () => {
     document.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
     window.OMREIS_MAP_NL?.(map); def.tweak?.(map);
-    ['route', 'pts', 'stops', 'veh'].forEach(id => map.addSource(id, { type: 'geojson', data: fc([]) }));
+    ['net', 'route', 'pts', 'stops', 'veh'].forEach(id => map.addSource(id, { type: 'geojson', data: fc([]) }));
     const round = { 'line-cap': 'round', 'line-join': 'round' };
+    // lijnennet: de routes waar nu bussen, trams en metro's rijden, in de kleur van de lijn
+    map.addLayer({ id: 'net', type: 'line', source: 'net', minzoom: 10.5, layout: round, paint: { 'line-color': ['get', 'color'], 'line-opacity': 0.75, 'line-width': ['interpolate', ['linear'], ['zoom'], 10.5, 1.2, 14, 3, 17, 5] } });
     map.addLayer({ id: 'route-glow', type: 'line', source: 'route', filter: ['==', ['get', 'kind'], 'transit'], layout: round, paint: { 'line-color': ['get', 'color'], 'line-width': 18, 'line-blur': 10, 'line-opacity': 0.35 } });
     map.addLayer({ id: 'route-case', type: 'line', source: 'route', filter: ['==', ['get', 'kind'], 'transit'], layout: round, paint: { 'line-color': '#fff', 'line-width': 9 } });
     map.addLayer({ id: 'route-line', type: 'line', source: 'route', filter: ['==', ['get', 'kind'], 'transit'], layout: round, paint: { 'line-color': ['get', 'color'], 'line-width': 5.5, 'line-opacity': ['get', 'opacity'] } });
@@ -195,16 +197,23 @@ function drawMe() {
 let vehSegs = [], vehFetched = 0;
 async function fetchVehicles() {
   if (!mapReady) return;
-  if (!state.vehOn || map.getZoom() < 10.5 || document.hidden) { vehSegs = []; return paintVehicles(); }
+  if (!state.vehOn || map.getZoom() < 10.5 || document.hidden) { vehSegs = []; if (!document.hidden) map.getSource('net').setData(fc([])); return paintVehicles(); }
   const b = map.getBounds(), now = Date.now();
   try {
-    const d = await api('/v5/map/trips', { min: `${b.getNorth()},${b.getWest()}`, max: `${b.getSouth()},${b.getEast()}`, startTime: new Date(now).toISOString(), endTime: new Date(now + 150000).toISOString(), zoom: Math.round(map.getZoom()) });
+    const d = await api('/v5/map/trips', { min: `${b.getNorth()},${b.getWest()}`, max: `${b.getSouth()},${b.getEast()}`, startTime: new Date(now).toISOString(), endTime: new Date(now + 20 * 60000).toISOString(), zoom: Math.round(map.getZoom()) });
     vehSegs = d.map(sg => {
       const line = decodePolyline(sg.polyline, 5), cum = [0];
       for (let i = 1; i < line.length; i++) cum.push(cum[i - 1] + Math.hypot((line[i][0] - line[i - 1][0]) * 0.61, line[i][1] - line[i - 1][1]));
       return { id: sg.trips[0].tripId, name: sg.trips[0].displayName || '', mode: sg.mode, color: hex(sg.routeColor), dep: ms(sg.departure), arr: ms(sg.arrival), line, cum };
     });
     vehFetched = now;
+    const seen = new Set(), net = [];
+    d.forEach((sg, i) => {
+      if (isRail(sg.mode) || seen.has(sg.polyline)) return;   // spoor staat al op de kaart
+      seen.add(sg.polyline);
+      net.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: vehSegs[i].line }, properties: { color: hex(sg.routeColor) || BRAND } });
+    });
+    map.getSource('net').setData(fc(net));
   } catch { /* volgende poging bij verplaatsen */ }
   paintVehicles();
 }
@@ -245,7 +254,7 @@ function paintVehicles() {
   });
   const feats = [];
   best.forEach(({ sg, score }) => {
-    if (score >= 1e9 + 60000) return;   // dit stuk is al ruim voorbij
+    if (score > 120000) return;   // rijdt nu, of vertrekt binnen twee minuten
     const f = (now - sg.dep) / (sg.arr - sg.dep || 1);
     feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: along(sg, f) }, properties: { tripId: sg.id, name: shortName(sg.name, sg.mode), color: sg.color || (isRail(sg.mode) ? DEEP : BRAND), sel: false } });
   });
@@ -283,7 +292,7 @@ let lastPaint = 0;
   if (!document.hidden && t - lastPaint > 40 && (vehSegs.length || state.ride?.leg)) { lastPaint = t; paintVehicles(); }
   requestAnimationFrame(loop);
 })(0);
-setInterval(() => { if (state.vehOn && Date.now() - vehFetched > 55000) fetchVehicles(); }, 15000);
+setInterval(() => { if (state.vehOn && Date.now() - vehFetched > 90000) fetchVehicles(); }, 15000);
 
 /* ---------- zoeken met suggesties ---------- */
 function geoLabel(g) {
