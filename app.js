@@ -17,10 +17,11 @@ const state = {
   alts: null, altsLoading: false, altsFor: '',
   modal: null,                    // pop-up "andere vertrektijd"
   gps: null,
-  stopsOpen: false, showAll: false, view3d: true, ride: null, best: null, near: null, vehOn: store.get('omreis.veh', true),
+  stopsOpen: false, showAll: false, ride: null, best: null, near: null, vehOn: store.get('omreis.veh', true),
   favs: store.get('omreis.favs', []),
   saved: store.get('omreis.saved', []), places: store.get('omreis.places', {}), recent: store.get('omreis.recent', []),
   pickFor: null, editing: false,
+  lines: store.get('omreis.lines', []), lineFilter: null,
   board: null
 };
 
@@ -182,22 +183,9 @@ function drawMap() {
   map.getSource('pts').setData(fc(dots));
   if (!all.length) return;
   if (all.length === 1) return map.flyTo({ center: all[0], zoom: 15, pitch: mapPitch });
-  if (state.trip?.started && state.view3d && !state.ride) return tripCamera();
   const b = all.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(all[0], all[0]));
   const sheetH = Math.min($('#sheet').offsetHeight, innerHeight * 0.55);
   map.fitBounds(b, { padding: { top: $('#plan-form').hidden ? 70 : 232, bottom: sheetH + 24, left: 36, right: 36 }, maxZoom: 15.5, pitch: mapPitch, bearing: 0, duration: 900 });
-}
-/* Reisweergave: schuin van achteren meekijken in de rijrichting, zoals een navigatiescherm. */
-function tripCamera() {
-  const trip = state.trip; if (!mapReady || !trip) return;
-  const L = trip.itin.legs, now = Date.now();
-  const cur = L.find(l => ms(l.endTime) > now) || L[L.length - 1];
-  const riding = isTransit(cur) && ms(cur.startTime) <= now;
-  const c = (riding && ridePosition(cur, now)) || (state.gps && now - state.gps.at < 120000 ? [state.gps.lon, state.gps.lat] : [cur.from.lon, cur.from.lat]);
-  const r = x => x * Math.PI / 180, la1 = r(c[1]), la2 = r(cur.to.lat), dLon = r(cur.to.lon - c[0]);
-  const bearing = Math.atan2(Math.sin(dLon) * Math.cos(la2), Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon)) * 180 / Math.PI;
-  const sheetH = Math.min($('#sheet').offsetHeight, innerHeight * 0.55);
-  map.easeTo({ center: c, zoom: 15.8, pitch: 60, bearing, offset: [0, -sheetH / 2 + 30], duration: 1500 });
 }
 function drawMe() {
   if (!mapReady || !state.gps) return;
@@ -208,7 +196,7 @@ function drawMe() {
 }
 
 /* Live voertuigen: ritsegmenten met actuele tijden; de positie wordt daaruit berekend. */
-let vehSegs = [], vehFetched = 0;
+let vehSegs = [], vehFetched = 0, netFilter = '';
 async function fetchVehicles() {
   if (!mapReady) return;
   if (!state.vehOn || map.getZoom() < 10.5 || document.hidden) { vehSegs = []; if (!document.hidden) map.getSource('net').setData(fc([])); return paintVehicles(); }
@@ -223,9 +211,10 @@ async function fetchVehicles() {
     vehFetched = now;
     const seen = new Set(), net = [];
     d.forEach((sg, i) => {
-      if (isRail(sg.mode) || seen.has(sg.polyline)) return;   // spoor staat al op de kaart
-      seen.add(sg.polyline);
-      net.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: vehSegs[i].line }, properties: { color: hex(sg.routeColor) || BRAND } });
+      const nm = sg.trips[0].displayName || '';
+      if (isRail(sg.mode) || seen.has(nm + sg.polyline)) return;   // spoor staat al op de kaart
+      seen.add(nm + sg.polyline);
+      net.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: vehSegs[i].line }, properties: { color: hex(sg.routeColor) || BRAND, name: nm } });
     });
     map.getSource('net').setData(fc(net));
   } catch { /* volgende poging bij verplaatsen */ }
@@ -266,8 +255,10 @@ function paintVehicles() {
   const only = itin && !state.showAll ? new Set(mine.map(l => l.tripId)) : null;
   const tracked = new Set(mine.filter(l => l.full).map(l => l.tripId));
   if (map.getLayer('net') && (map.getLayoutProperty('net', 'visibility') === 'none') !== !!only) map.setLayoutProperty('net', 'visibility', only ? 'none' : 'visible');
+  const lf = only || state.ride ? null : state.lineFilter;
+  if (map.getLayer('net') && netFilter !== (lf ? lf.short : '')) { netFilter = lf ? lf.short : ''; map.setFilter('net', lf ? ['==', ['get', 'name'], lf.short] : null); }
   vehSegs.forEach(sg => {
-    if (sg.id === selId || !sg.line.length || tracked.has(sg.id) || (only && !only.has(sg.id))) return;
+    if (sg.id === selId || !sg.line.length || tracked.has(sg.id) || (only && !only.has(sg.id)) || (lf && sg.name !== lf.short)) return;
     const cur = best.get(sg.id), active = sg.dep <= now && now <= sg.arr;
     const score = active ? 0 : now < sg.dep ? sg.dep - now : now - sg.arr + 1e9;
     if (!cur || score < cur.score) best.set(sg.id, { sg, score });
@@ -429,7 +420,7 @@ function shortcutsHtml() {
     </div>`).join('');
   const any = state.saved.length || P.home || P.work;
   $('#quick').innerHTML = chips;
-  return `${rows ? `<h2>Opgeslagen reizen</h2>${rows}` : ''}${any ? `<button class="btn-text" data-action="edit">${ed ? 'Klaar' : 'Aanpassen'}</button>` : ''}`;
+  return `${rows ? `<h2>Opgeslagen reizen</h2>${rows}` : ''}${linesHtml(ed)}${any || state.lines.length ? `<button class="btn-text" data-action="edit">${ed ? 'Klaar' : 'Aanpassen'}</button>` : ''}`;
 }
 function setEndpoints(from, to) {
   state.to = to; $('#to').value = to?.label || '';
@@ -507,7 +498,6 @@ function beginTrip() {
   store.set('omreis.trip', state.trip);
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
   watchGps(); render();
-  mapKey = ''; drawMap();   // naar de 3D-reisweergave
 }
 function closeTrip() {
   state.trip = null; state.best = null; state.alts = null; state.problems = []; state.problemKey = ''; state.modal = null;
@@ -561,7 +551,6 @@ async function refreshTrip() {
   store.set('omreis.trip', trip);
   evaluate(); render();
   changes.forEach(c => notify(c, 'Perronwijziging', 'omreis-perron'));
-  if (trip.started && state.view3d && !state.ride && !document.body.classList.contains('map-focus')) tripCamera();   // camera volgt je reis
   if (trip.started && Date.now() - lastBest > 55000) checkBest();
 }
 
@@ -687,6 +676,40 @@ function renderModal() {
   $('#modal-body').innerHTML = `<div class="modal-head"><div><h3 id="modal-title">${esc(m.title)}</h3><p class="alts-sub">${esc(m.sub)}</p></div><button class="icon-btn" data-action="closemodal" aria-label="Sluiten">${svg('close')}</button></div>${body}`;
 }
 
+/* Zet een reis om in losse, genummerde handelingen: lopen, instappen, uitstappen, overstappen. */
+function buildSteps(L, nm) {
+  const steps = [];
+  let lastEnd = L[0].startTime;
+  L.forEach((leg, i) => {
+    const prevT = L.slice(0, i).reverse().find(isTransit), nextT = L.slice(i + 1).find(isTransit);
+    if (!isTransit(leg)) {
+      if (prevT && nextT && leg.duration < 60) return;   // zelfde perron: geen aparte loopstap
+      const where = nextT && nextT.from.track ? `perron ${esc(nextT.from.track)}` : nm(leg.to);
+      steps.push({
+        kind: 'walk', icon: 'walk', start: leg.startTime, end: leg.endTime, time: leg.startTime,
+        title: prevT && nextT ? `Overstappen: loop naar ${where}` : `Loop naar ${nm(leg.to)}`,
+        sub: `${dur(leg.duration)} lopen${leg.distance ? ` · ${Math.round(leg.distance / 10) * 10} m` : ''}`
+      });
+      lastEnd = leg.endTime;
+      return;
+    }
+    const gap = prevT ? mins(ms(leg.startTime) - ms(prevT.endTime)) : null;
+    const gapTxt = gap == null ? '' : gap < 0 ? '<span class="tag bad">overstap niet haalbaar</span>' : `<span class="tag ${gap < 3 ? 'warn' : ''}">${gap} min overstaptijd</span>`;
+    steps.push({
+      kind: 'in', icon: MODE_IC[leg.mode] || (isRail(leg.mode) ? 'train' : 'bus'), start: lastEnd, end: leg.startTime, time: leg.startTime, sched: leg.scheduledStartTime, cancelled: leg.cancelled,
+      title: `Stap in: ${esc(legName(leg))} richting ${esc(leg.headsign || leg.to.name)}`,
+      sub: `${nm(leg.from)}${leg.from.track ? ` · <strong>perron ${esc(leg.from.track)}</strong>` : ''}${gapTxt}`, chip: chip(leg)
+    });
+    const mid = leg.intermediateStops || [];
+    steps.push({
+      kind: 'out', icon: 'pin', start: leg.startTime, end: leg.endTime, time: leg.endTime, sched: leg.scheduledEndTime, cancelled: leg.cancelled, mid,
+      title: `Stap uit bij ${nm(leg.to)}`,
+      sub: `${mid.length ? `na ${mid.length} ${mid.length === 1 ? 'tussenhalte' : 'tussenhaltes'}` : 'dit is de eerstvolgende halte'}${leg.to.track ? ` · perron ${esc(leg.to.track)}` : ''}${nextT ? ` · daarna overstappen op ${esc(legName(nextT))}` : ''}`
+    });
+    lastEnd = leg.endTime;
+  });
+  return steps;
+}
 function nowCard(L, now) {
   const i = L.findIndex(l => ms(l.endTime) > now);
   if (i < 0) return { k: 'Aangekomen', v: 'Je bent op je bestemming', s: `Aankomst ${hhmm(L[L.length - 1].endTime)}` };
@@ -713,13 +736,15 @@ function renderTrack() {
   const late = mins(end - ms(trip.origEnd));
   const [fromLabel, toLabel] = trip.label.split(' → ');
   const nm = p => esc(p.name === 'START' ? (fromLabel || 'Vertrekpunt') : p.name === 'END' ? (toLabel || 'Bestemming') : p.name);
+  const steps = buildSteps(L, nm);
+  const curStep = steps.findIndex(s => ms(s.end) > now);
   const stateTxt = { ok: trip.started ? 'Op schema' : 'Rijdt volgens plan', warn: 'Let op', bad: 'Verstoord' }[sev];
 
   const alert = P.length ? `<div class="alert ${sev}" role="status" aria-live="polite">${svg('alert')}<div><strong>${sev === 'bad' ? 'Je reis is verstoord' : 'Let op'}</strong>${P.map(p => `<p>${esc(p.text)}</p>`).join('')}</div></div>` : '';
 
   let hero = '';
   if (!trip.started) hero = `<button class="btn-primary" data-action="begin">Start reis</button>`;
-  else if (sev !== 'bad') { const nc = nowCard(L, now); hero = `<div class="now"><div class="k">${nc.k}</div><div class="v">${nc.v}</div><div class="s">${nc.s}</div></div>`; }
+  else if (sev !== 'bad') { const nc = nowCard(L, now); const nx = curStep >= 0 ? steps[curStep + 1] : null; hero = `<div class="now"><div class="k">${nc.k}</div><div class="v">${nc.v}</div><div class="s">${nc.s}</div>${nx ? `<div class="then"><b>Daarna</b>${nx.title}</div>` : ''}</div>`; }
 
   let alts = '';
   if (state.alts) {
@@ -735,20 +760,17 @@ function renderTrack() {
     best = state.best.current ? `<div class="bestline">${svg('check')}Dit is nu de snelste reis</div>`
       : `<h2>Snellere optie</h2><p class="alts-sub">${state.best.gain} min eerder binnen · vanaf ${esc(state.best.from)}</p>${itinCard(state.best.itin, 0, 'Wissel', 'usebest', false, '')}`;
   }
-  const legsHtml = L.map((leg, i) => {
-    const done = ms(leg.endTime) <= now, future = ms(leg.startTime) > now, active = !done && !future;
-    const pt = (p, t, sched) => `<div class="pt"><span class="t ${leg.cancelled ? 'strike' : ''}">${hhmm(t)}${sched ? delayHtml(t, sched) : ''}</span><span class="n">${nm(p)}</span>${p.track ? `<span class="trk">perron ${esc(p.track)}</span>` : ''}</div>`;
-    if (!isTransit(leg)) {
-      return `<div class="leg walk ${done ? 'done' : ''}">${i === 0 ? pt(leg.from, leg.startTime) : ''}<div class="walkline">${svg('walk')}Lopen · ${dur(leg.duration)}${leg.distance ? ` · ${Math.round(leg.distance / 10) * 10} m` : ''}</div>${i === L.length - 1 ? pt(leg.to, leg.endTime) : ''}</div>`;
-    }
-    const mid = leg.intermediateStops || [];
-    const midHtml = mid.map(s => `<div class="pt small ${ms(s.departure || s.arrival) <= now ? 'passed' : ''}"><span class="t">${hhmm(s.arrival || s.departure)}</span><span class="n">${esc(s.name)}</span></div>`).join('');
-    const c = hex(leg.routeColor);
-    return `<div class="leg ${done ? 'done' : ''} ${leg.cancelled ? 'cancel' : ''}" style="--c:${c || 'var(--accent)'}">
-      ${pt(leg.from, leg.startTime, leg.scheduledStartTime)}
-      <details class="ride"${active ? ' open' : ''}><summary>${chip(leg)}<span>richting ${esc(leg.headsign || leg.to.name)}</span>${leg.cancelled ? '<span class="pill">rijdt niet</span>' : ''}${mid.length ? `<span class="tog">${mid.length} ${mid.length === 1 ? 'tussenhalte' : 'tussenhaltes'}</span>` : ''}</summary>${midHtml}</details>
-      ${pt(leg.to, leg.endTime, leg.scheduledEndTime)}
-    </div>`;
+  const stepsHtml = steps.map((s, k) => {
+    const done = trip.started && ms(s.end) <= now, active = trip.started && k === curStep;
+    const stops = s.mid && s.mid.length ? `<details class="ride"><summary><span class="tog">Tussenhaltes bekijken</span></summary>${s.mid.map(x => `<div class="mid ${ms(x.departure || x.arrival) <= now ? 'passed' : ''}"><span>${hhmm(x.arrival || x.departure)}</span>${esc(x.name)}</div>`).join('')}</details>` : '';
+    return `<li class="step ${s.kind} ${done ? 'done' : ''} ${active ? 'active' : ''} ${s.cancelled ? 'cancel' : ''}">
+      <span class="num">${done ? svg('check') : k + 1}</span>
+      <div class="body">
+        <div class="ttl">${s.title}${s.cancelled && s.kind === 'in' ? '<span class="pill">rijdt niet</span>' : ''}</div>
+        <div class="sub">${s.chip || ''}${s.sub}</div>${stops}
+      </div>
+      <span class="when num-t ${s.cancelled ? 'strike' : ''}">${hhmm(s.time)}${s.sched ? delayHtml(s.time, s.sched) : ''}</span>
+    </li>`;
   }).join('');
 
   el.innerHTML = `
@@ -757,8 +779,8 @@ function renderTrack() {
     <div class="arrive"><span>Aankomst <strong class="num">${hhmm(end)}</strong>${late >= 1 ? ` <span class="late">+${late}</span>` : ''} · ${dur(trip.itin.duration)}${walkMin(trip.itin) ? ` · ${walkMin(trip.itin)} min lopen` : ''}</span><span class="state ${sev}"><i></i>${stateTxt}</span></div>
     ${trip.started ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}</div>
     ${alert}${hero}${best}${alts}${L.map(l => alertsHtml(l.alerts)).join('')}
-    <h2>Je reis</h2>
-    <div class="timeline">${legsHtml}</div>
+    <h2>Stap voor stap</h2>
+    <ol class="steps">${stepsHtml}</ol>
     <div class="updated">Bijgewerkt om ${hhmm(trip.updated)}${navigator.onLine ? '' : ' · offline'}</div>
     <div class="actions">
       <button class="btn" data-action="manual">Zelf reis kiezen</button>
@@ -768,6 +790,14 @@ function renderTrack() {
       <button class="btn-text" data-action="sim">${trip.sim != null ? 'Teststoring uitzetten' : 'Teststoring simuleren'}</button>
       <button class="btn-text danger" data-action="stop">Reis stoppen</button>
     </div></details>`;
+}
+
+/* ---------- opgeslagen lijnen ---------- */
+const lineOf = leg => ({ short: leg.displayName || leg.routeShortName || '', label: legName(leg), mode: leg.mode, color: leg.routeColor || '', agency: leg.agencyName || '' });
+const lineKey = l => `${l.agency}|${l.mode}|${l.short}`;
+function linesHtml(edit) {
+  if (!state.lines.length) return '';
+  return `<h2>Opgeslagen lijnen</h2><div class="favs">${state.lines.map((l, i) => `<span class="quick-item"><button class="btn${state.lineFilter && lineKey(state.lineFilter) === lineKey(l) ? ' sel' : ''}" data-action="line" data-i="${i}">${chip({ mode: l.mode, displayName: l.short, routeColor: l.color })}${esc(l.agency)}</button>${edit ? `<button class="icon-btn" data-action="delline" data-i="${i}" aria-label="Verwijder lijn">${svg('close')}</button>` : ''}</span>`).join('')}</div>`;
 }
 
 /* ---------- meldingen van vervoerders ---------- */
@@ -804,7 +834,8 @@ function renderRide() {
     const t = (i === 0 ? x.departure : x.arrival) || x.departure || x.arrival, sch = (i === 0 ? x.scheduledDeparture : x.scheduledArrival) || x.scheduledDeparture;
     return `<div class="pt ${ms(x.departure || x.arrival) <= now ? 'passed' : ''}"><span class="t ${x.cancelled ? 'strike' : ''}">${hhmm(t)}${sch ? delayHtml(t, sch) : ''}</span><span class="n">${esc(x.name)}</span>${x.track ? `<span class="trk">perron ${esc(x.track)}</span>` : ''}</div>`;
   }).join('');
-  el.innerHTML = `<div class="hero-trip">${nav(leg.agencyName || 'Rit')}
+  const savedLine = state.lines.some(l => lineKey(l) === lineKey(lineOf(leg)));
+  el.innerHTML = `<div class="hero-trip">${nav(leg.agencyName || 'Rit')}<button class="icon-btn star save-line ${savedLine ? 'on' : ''}" data-action="saveline" aria-label="${savedLine ? 'Lijn verwijderen uit opgeslagen' : 'Lijn opslaan'}" title="Lijn opslaan">${svg('star')}</button>
       <h1>${esc(legName(leg))} naar ${esc(leg.headsign || leg.to.name)}</h1>
       <div class="arrive"><span>${status}</span><span class="state ${leg.cancelled ? 'bad' : late >= 2 ? 'warn' : 'ok'}"><i></i>${leg.cancelled ? 'Vervalt' : late >= 1 ? `+${late} min` : 'Op tijd'}</span></div>
     </div>
@@ -845,6 +876,7 @@ async function loadBoard(stop) {
   renderBoard();
 }
 function renderBoard() {
+  $('#lines').innerHTML = linesHtml(false);
   $('#favs').innerHTML = state.favs.map((f, i) => `<button class="btn" data-fav="${i}">${svg('star')}${esc(f.label)}</button>`).join('');
   const n = state.near;
   $('#nearby').innerHTML = !n ? '' : n.loading ? '<span class="spinner"></span>' : n.error ? `<small>${esc(n.error)}</small>`
@@ -918,8 +950,9 @@ function render() {
   $('#plan-form').hidden = view !== 'plan';
   $('#quick').hidden = view !== 'plan';
   $('#stops-btn').hidden = view === 'stops' || view === 'ride';
-  const b3 = $('#view3d-btn'); b3.hidden = !(view === 'trip' && state.trip.started); b3.classList.toggle('on', state.view3d);
   $('#net').hidden = navigator.onLine;
+  const lp = $('#line-pill'); lp.hidden = !state.lineFilter || view === 'ride' || !!state.trip;
+  if (state.lineFilter) lp.innerHTML = `${esc(state.lineFilter.label)} ${svg('close')}`;
   if (view === 'trip') {
     const open = [...document.querySelectorAll('#view-track details')].map(d => d.open);   // stand van uitklappers behouden
     renderTrack();
@@ -945,6 +978,19 @@ document.addEventListener('click', e => {
       break;
     case 'page': searchPlan({ cursor: state.cursors[a.dataset.dir] }); break;
     case 'begin': beginTrip(); break;
+    case 'saveline': {
+      const l = lineOf(state.ride.leg), k = state.lines.findIndex(x => lineKey(x) === lineKey(l));
+      k >= 0 ? state.lines.splice(k, 1) : state.lines.unshift(l);
+      store.set('omreis.lines', state.lines); render(); break;
+    }
+    case 'line': {
+      const l = state.lines[i];
+      state.lineFilter = state.lineFilter && lineKey(state.lineFilter) === lineKey(l) ? null : l;
+      if (state.lineFilter) { state.stopsOpen = false; if (!state.vehOn) { state.vehOn = true; store.set('omreis.veh', true); fetchVehicles(); } }
+      render(); break;
+    }
+    case 'clearline': state.lineFilter = null; render(); break;
+    case 'delline': state.lines.splice(i, 1); store.set('omreis.lines', state.lines); state.lineFilter = null; render(); break;
     case 'place': {
       const k = a.dataset.k, p = state.places[k];
       if (p) { state.pickFor = null; setEndpoints(state.from && state.from.place !== p.place ? state.from : null, p); if (state.from?.place === p.place) { state.from = null; $('#from').value = ''; useMyLocation(false); } }
@@ -985,7 +1031,6 @@ document.addEventListener('click', e => {
       if (k < 0) alert('Je zit al in je laatste rit; er valt niets meer te kiezen.'); else openLegOptions(k);
       break;
     }
-    case 'view3d': state.view3d = !state.view3d; render(); mapKey = ''; drawMap(); break;
     case 'pickleg': pickLegOption(i); break;
     case 'closemodal': state.modal = null; renderModal(); break;
     case 'alts': loadAlts(true); break;

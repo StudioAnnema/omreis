@@ -79,7 +79,7 @@
   window.OMREIS_MAPS = {
     circuit: {
       label: 'Lijnennet', note: 'Moderne lichte kaart met het spoor en de buslijnen voorop', style: OFM + 'positron', pitch: 0,
-      tweak: m => { recolor(m, { land: '#EEEBF5', water: '#C7DAFF', green: '#D9EDCF', built: '#EEEBF5', building: '#E3DEEE', rail: '#2B1A66', road: '#FFFFFF', text: '#5F5884' }); declutter(m, '#DCD3F3'); modern(m); buildings3d(m, '#E1DCEE', 1, 14.8); }
+      tweak: m => { recolor(m, { land: '#EEEBF5', water: '#C7DAFF', green: '#D9EDCF', built: '#EEEBF5', building: '#E3DEEE', rail: '#2B1A66', road: '#FFFFFF', text: '#5F5884' }); declutter(m, '#DCD3F3'); modern(m); }
     },
     liberty: { label: 'Kleur', note: 'Zoals een gewone wegenkaart, alle kleuren', style: OFM + 'liberty' },
     bright: { label: 'Fris', note: 'Helder en contrastrijk, gele hoofdwegen', style: OFM + 'bright' },

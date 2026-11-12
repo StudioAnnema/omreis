@@ -25,6 +25,7 @@
     omreis
   </div>
   <div id="net" class="net" hidden>Geen verbinding</div>
+  <button id="line-pill" class="top-btn pill-on" data-action="clearline" hidden></button>
   <button id="stops-btn" class="top-btn" data-action="stops"><span data-ic="clock"></span>Vertrektijden</button>
 </header>
 
@@ -48,7 +49,6 @@
 
 <section id="sheet" class="sheet" data-size="half" aria-label="Reisinformatie">
   <div class="map-btns">
-  <button id="view3d-btn" class="map-btn txt" data-action="view3d" aria-label="Wissel tussen 3D-reisweergave en overzicht" hidden>3D</button>
   <button id="veh-btn" class="map-btn" data-action="veh" aria-label="Bussen en treinen op de kaart tonen of verbergen" title="Bussen en treinen"><span data-ic="bus"></span></button>
   <button class="map-btn" data-action="center" aria-label="Naar mijn locatie" title="Mijn locatie"><span data-ic="locate"></span></button>
 </div>
@@ -87,6 +87,7 @@
       </div>
       <div class="favs"><button class="btn" data-action="nearby"><span data-ic="locate"></span>Haltes in de buurt</button></div>
       <div id="nearby" class="favs"></div>
+      <div id="lines"></div>
       <div id="favs" class="favs"></div>
       <div id="board"></div>
     </div>
