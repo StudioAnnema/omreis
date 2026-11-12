@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Omreis – je reis, ook als het misgaat</title>
+<meta name="description" content="Vul je OV-reis in, volg hem live en krijg direct een alternatief bij een storing.">
+<meta name="theme-color" content="#F3EFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#120C2A" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="map" aria-hidden="true"></div>
+
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" fill="#5B2EFF"/><path d="M186 392V120" fill="none" stroke="#fff" stroke-opacity=".38" stroke-width="40" stroke-linecap="round"/><path d="M186 392v-70c0-92 150-70 150-170" fill="none" stroke="#fff" stroke-width="40" stroke-linecap="round"/><circle cx="336" cy="140" r="34" fill="#C8F53C"/></svg>
+    omreis
+  </div>
+  <div id="net" class="net" hidden>Geen verbinding</div>
+  <button id="stops-btn" class="top-btn" data-action="stops"><span data-ic="clock"></span>Vertrektijden</button>
+</header>
+
+<form id="plan-form" class="search floating" autocomplete="off">
+  <div class="fld from">
+    <span class="dot"></span>
+    <input id="from" type="text" placeholder="Van" aria-label="Van" inputmode="search">
+    <button type="button" id="gps-btn" class="icon-btn" title="Gebruik mijn locatie" aria-label="Gebruik mijn locatie"><span data-ic="locate"></span></button>
+    <ul class="ac-list" id="from-list" hidden></ul>
+  </div>
+  <div class="fld to">
+    <span class="dot"></span>
+    <input id="to" type="text" placeholder="Waar ga je heen?" aria-label="Naar" inputmode="search">
+    <ul class="ac-list" id="to-list" hidden></ul>
+  </div>
+  <button type="button" id="swap" class="icon-btn swap" aria-label="Wissel van en naar"><span data-ic="swap"></span></button>
+</form>
+<div id="quick" class="quick"></div>
+
+
+
+<section id="sheet" class="sheet" data-size="half" aria-label="Reisinformatie">
+  <div class="map-btns">
+  <button id="veh-btn" class="map-btn" data-action="veh" aria-label="Bussen en treinen op de kaart tonen of verbergen" title="Bussen en treinen"><span data-ic="bus"></span></button>
+  <button class="map-btn" data-action="center" aria-label="Naar mijn locatie" title="Mijn locatie"><span data-ic="locate"></span></button>
+</div>
+  <button class="handle" id="handle" aria-label="Paneel groter of kleiner maken"><i></i></button>
+  <div class="sheet-body" id="sheet-body">
+    <div id="view-plan">
+      <div class="plan-head">
+        <h2 id="plan-title">Snelste opties</h2>
+        <span class="head-btns"><button type="button" id="save-trip" class="icon-btn star" data-action="savetrip" aria-label="Reis opslaan" title="Reis opslaan" hidden><span data-ic="star"></span></button><button type="button" id="plan-refresh" class="icon-btn" data-action="refreshplan" aria-label="Ververs" hidden><span data-ic="refresh"></span></button></span>
+      </div>
+      <div id="shortcuts"></div>
+      <details class="whenbox">
+        <summary class="btn"><span data-ic="clock"></span><span id="when-label">Nu vertrekken</span></summary>
+        <div class="when">
+          <select id="when-mode" aria-label="Vertrek of aankomst">
+            <option value="dep">Vertrek</option>
+            <option value="arr">Aankomst</option>
+          </select>
+          <input id="when" type="datetime-local" aria-label="Tijdstip">
+          <button type="button" class="btn-text" id="when-now" hidden>Nu</button>
+        </div>
+      </details>
+      <div id="plan-msg" class="msg" hidden></div>
+      <div id="results"></div>
+    </div>
+    <div id="view-track" hidden></div>
+    <div id="view-ride" hidden></div>
+    <div id="view-stops" hidden>
+      <div class="trip-nav"><button class="icon-btn" data-action="closestops" aria-label="Terug"><span data-ic="back"></span></button><span class="eyebrow">Vertrektijden</span></div>
+      <div class="search">
+        <div class="fld">
+          <span class="dot"></span>
+          <input id="stop-q" type="text" placeholder="Zoek halte of station" aria-label="Zoek halte of station" inputmode="search" autocomplete="off">
+          <ul class="ac-list" id="stop-list" hidden></ul>
+        </div>
+      </div>
+      <div class="favs"><button class="btn" data-action="nearby"><span data-ic="locate"></span>Haltes in de buurt</button></div>
+      <div id="nearby" class="favs"></div>
+      <div id="favs" class="favs"></div>
+      <div id="board"></div>
+    </div>
+    
+  </div>
+</section>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
+<script src="mapstyles.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
