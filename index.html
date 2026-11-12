@@ -29,6 +29,7 @@
   <button id="stops-btn" class="top-btn" data-action="stops"><span data-ic="clock"></span>Vertrektijden</button>
 </header>
 
+<div id="searchwrap">
 <form id="plan-form" class="search floating" autocomplete="off">
   <div class="fld from">
     <span class="dot"></span>
@@ -38,12 +39,14 @@
   </div>
   <div class="fld to">
     <span class="dot"></span>
-    <input id="to" type="text" placeholder="Waar ga je heen?" aria-label="Naar" inputmode="search">
+    <input id="to" type="text" placeholder="Waar wil je heen?" aria-label="Naar" inputmode="search">
     <ul class="ac-list" id="to-list" hidden></ul>
   </div>
+  <button type="button" class="from-line" data-action="showfrom"><span data-ic="locate"></span>Vanaf waar je nu bent<u>wijzig</u></button>
   <button type="button" id="swap" class="icon-btn swap" aria-label="Wissel van en naar"><span data-ic="swap"></span></button>
 </form>
 <div id="quick" class="quick"></div>
+</div>
 
 
 
@@ -52,6 +55,7 @@
   <button id="veh-btn" class="map-btn" data-action="veh" aria-label="Bussen en treinen op de kaart tonen of verbergen" title="Bussen en treinen"><span data-ic="bus"></span></button>
   <button class="map-btn" data-action="center" aria-label="Naar mijn locatie" title="Mijn locatie"><span data-ic="locate"></span></button>
 </div>
+  <div id="startfx" class="startfx" hidden><div class="ring"></div><strong>Reis gestart</strong><span>We kijken met je mee tot je er bent</span></div>
   <button class="handle" id="handle" aria-label="Paneel groter of kleiner maken"><i></i></button>
   <div class="sheet-body" id="sheet-body">
     <div id="view-plan">

@@ -183,9 +183,31 @@ function drawMap() {
   map.getSource('pts').setData(fc(dots));
   if (!all.length) return;
   if (all.length === 1) return map.flyTo({ center: all[0], zoom: 15, pitch: mapPitch });
+  if (state.trip?.started && !state.ride) return liveCamera();
   const b = all.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(all[0], all[0]));
   const sheetH = Math.min($('#sheet').offsetHeight, innerHeight * 0.55);
   map.fitBounds(b, { padding: { top: $('#plan-form').hidden ? 70 : 232, bottom: sheetH + 24, left: 36, right: 36 }, maxZoom: 15.5, pitch: mapPitch, bearing: 0, duration: 900 });
+}
+/* Live-beeld zoals bij een taxi-app: je instaphalte en het voertuig dat eraan komt samen in beeld. */
+function liveCamera() {
+  const trip = state.trip; if (!mapReady || !trip) return;
+  const L = trip.itin.legs, now = Date.now(), pts = [];
+  const cur = L.find(l => ms(l.endTime) > now) || L[L.length - 1];
+  const near = (p, q) => distM({ lat: p[1], lon: p[0] }, { lat: q[1], lon: q[0] }) < 15000;
+  if (isTransit(cur) && ms(cur.startTime) <= now) {
+    pts.push(ridePosition(cur, now) || [cur.from.lon, cur.from.lat], [cur.to.lon, cur.to.lat]);
+  } else {
+    const nt = L.find(l => isTransit(l) && ms(l.startTime) > now);
+    const stop = nt ? [nt.from.lon, nt.from.lat] : [cur.to.lon, cur.to.lat];
+    pts.push(stop);
+    if (state.gps && now - state.gps.at < 120000 && near([state.gps.lon, state.gps.lat], stop)) pts.push([state.gps.lon, state.gps.lat]);
+    else if (!isTransit(cur)) pts.push([cur.from.lon, cur.from.lat]);
+    if (nt && nt.full && now >= ms(nt.full[0].departure || nt.full[0].arrival)) { const v = ridePosition(nt, now); if (v && near(v, stop)) pts.push(v); }
+  }
+  const sheetH = Math.min($('#sheet').offsetHeight, innerHeight * 0.55);
+  if (pts.length < 2) return map.easeTo({ center: pts[0], zoom: 15, pitch: 0, bearing: 0, offset: [0, -sheetH / 2 + 20], duration: 900 });
+  const b = pts.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(pts[0], pts[0]));
+  map.fitBounds(b, { padding: { top: 90, bottom: sheetH + 50, left: 60, right: 70 }, maxZoom: 15.5, pitch: 0, bearing: 0, duration: 900 });
 }
 function drawMe() {
   if (!mapReady || !state.gps) return;
@@ -379,12 +401,14 @@ function setMsg(text, err) {
 }
 function endpointsChanged() {
   state.results = []; state.sel = 0; state.paged = false; state.cursors = {};
+  // alleen een bestemming is genoeg: vertrekpunt is waar je nu bent
+  if (state.to && !state.from && !state.showFrom && !state.gpsDenied && !state.locating && !state.pickFor) { renderPlan(); return useMyLocation(false); }
   if (state.from && state.to) searchPlan(); else { renderPlan(); drawMap(); }
 }
 async function searchPlan({ silent, cursor } = {}) {
   if (!state.from || !state.to || state.searching) return;
   state.searching = true; state.lastSearch = Date.now();
-  if (!silent) { setMsg('<span class="spinner"></span>Snelste opties zoeken…'); if (!cursor) $('#results').innerHTML = ''; }
+  if (!silent) { setMsg('<span class="spinner"></span>Je reis zoeken…'); if (!cursor) { $('#view-plan').insertBefore($('.whenbox'), $('#plan-msg')); $('#results').innerHTML = ''; } }
   const from = state.from, to = state.to;
   try {
     const when = $('#when').value;
@@ -428,23 +452,48 @@ function setEndpoints(from, to) {
   else if (state.from) endpointsChanged();
   else useMyLocation(false);   // vult "Van" en zoekt daarna vanzelf
 }
+/* De reis in gewone zinnen: wat moet je doen, in welke volgorde. */
+function sayLines(it) {
+  const L = it.legs, tr = L.filter(isTransit), out = [];
+  const first = L[0], last = L[L.length - 1];
+  if (!tr.length) out.push(['walk', `Loop ${dur(it.duration)} naar je bestemming`]);
+  else if (!isTransit(first) && first.duration >= 60) out.push(['walk', `Loop ${dur(first.duration)} naar halte ${esc(tr[0].from.name)}`]);
+  tr.forEach((l, i) => out.push([MODE_IC[l.mode] || (isRail(l.mode) ? 'train' : 'bus'),
+    `${i ? 'Stap over op' : 'Neem'} <strong>${esc(legName(l))}</strong> richting ${esc(l.headsign || l.to.name)} om ${hhmm(l.startTime)}${l.from.track ? `, perron ${esc(l.from.track)}` : ''}`]));
+  if (tr.length) out.push(['pin', `Stap uit bij ${esc(tr[tr.length - 1].to.name)}${!isTransit(last) && last !== first && last.duration >= 120 ? ` en loop ${dur(last.duration)} naar je bestemming` : ''}`]);
+  return out.map(([ic, t]) => `<li>${svg(ic)}<span>${t}</span></li>`).join('');
+}
 function renderPlan() {
-  $('#shortcuts').hidden = state.results.length > 0;
-  $('#shortcuts').innerHTML = shortcutsHtml();
-  const sb = $('#save-trip'); sb.hidden = !(state.from && state.to); sb.classList.toggle('on', savedIndex() >= 0);
   const has = state.results.length > 0;
+  $('#shortcuts').hidden = has;
+  $('#shortcuts').innerHTML = shortcutsHtml();
+  const sb = $('#save-trip'); sb.hidden = !has; sb.classList.toggle('on', savedIndex() >= 0);
   const live = has && !$('#when').value && !state.paged;
   $('#plan-refresh').hidden = !has;
   const w = $('#when').value, arr = $('#when-mode').value === 'arr';
   $('#when-now').hidden = !w;
   $('#when-label').textContent = w ? `${arr ? 'Aankomst' : 'Vertrek'} ${new Date(w).toLocaleString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : (arr ? 'Aankomst: kies tijd' : 'Nu vertrekken');
-  $('#plan-title').textContent = has ? ($('#when-mode').value === 'arr' ? 'Opties op tijd binnen' : 'Snelste opties') : 'Plan je reis';
-  if (state.pickFor) setMsg(`Zoek het adres van ${state.pickFor === 'home' ? 'thuis' : 'je werk'} in het veld “Waar ga je heen?”.`);
-  else if (!state.from || !state.to) setMsg(state.saved.length || state.places.home || state.places.work ? '' : 'Kies waar je vertrekt en waar je heen wilt.');
-  $('#results').innerHTML = !has ? '' :
-    `<button class="btn-primary start" data-action="startbest">Start reis<small>vertrek ${hhmm(state.results[state.sel].startTime)} · aankomst ${hhmm(state.results[state.sel].endTime)}</small></button>` +
-    state.results.map((it, i) => itinCard(it, i, i === state.sel ? 'Details' : 'Kies', 'select', i === state.sel, i === 0 && live ? 'Snelste' : '')).join('') +
-    `<div class="pager"><button class="btn-text" data-action="page" data-dir="prev"${state.cursors.prev ? '' : ' disabled'}>Eerder</button><button class="btn-text" data-action="page" data-dir="next"${state.cursors.next ? '' : ' disabled'}>Later</button></div>`;
+  $('.whenbox').hidden = !has;
+  $('#plan-title').textContent = has ? 'Jouw reis' : 'Waar wil je heen?';
+  $('#plan-form').classList.toggle('simple', !state.showFrom && (!state.from || state.from.label === 'Mijn locatie'));
+  if (state.pickFor) setMsg(`Typ hierboven het adres van ${state.pickFor === 'home' ? 'thuis' : 'je werk'}.`);
+  else if (!state.to) setMsg('Typ hierboven je bestemming. Je ziet meteen welke bus of trein je moet nemen.');
+  else if (!state.from) setMsg(state.gpsDenied || state.showFrom ? 'Typ hierboven waar je vertrekt.' : '<span class="spinner"></span>Je locatie bepalen…');
+  $('#view-plan').insertBefore($('.whenbox'), $('#plan-msg'));
+  if (!has) { $('#results').innerHTML = ''; return; }
+  const it = state.results[state.sel], n = state.results.length - 1;
+  $('#results').innerHTML = `<div class="bestcard">
+      <div class="k">${state.sel === 0 && live ? 'Snelste reis' : 'Jouw keuze'}${it.legs.some(l => l.cancelled) ? '<span class="pill">rijdt niet</span>' : ''}</div>
+      <div class="big"><span><small>Vertrek</small><b class="num">${hhmm(it.startTime)}</b></span><i>→</i><span><small>Je bent er om</small><b class="num">${hhmm(it.endTime)}</b></span></div>
+      <div class="meta">${dur(it.duration)} · ${transfersText(it.transfers)}${walkMin(it) ? ` · ${walkMin(it)} min lopen` : ''}</div>
+      <ul class="say">${sayLines(it)}</ul>
+      <button class="btn-primary" data-action="startbest">Start reis</button>
+    </div>
+    <details class="others"${state.othersOpen ? ' open' : ''}><summary>${n > 0 ? `Andere opties (${n})` : 'Andere tijd'}</summary>
+      ${state.results.map((x, i) => itinCard(x, i, i === state.sel ? 'Gekozen' : 'Kies', 'select', i === state.sel, i === 0 && live ? 'Snelste' : '')).join('')}
+      <div class="pager"><button class="btn-text" data-action="page" data-dir="prev"${state.cursors.prev ? '' : ' disabled'}>Eerder</button><button class="btn-text" data-action="page" data-dir="next"${state.cursors.next ? '' : ' disabled'}>Later</button></div>
+    </details>`;
+  const wb = $('.whenbox'); $('.others').insertBefore(wb, $('.others .itin') || $('.others .pager'));   // tijd kiezen hoort bij de andere opties
 }
 function itinCard(it, i, cta, action, selected, label) {
   const legs = it.legs.filter(l => l.mode !== 'WALK' || l.duration >= 120);
@@ -497,7 +546,9 @@ function beginTrip() {
   state.trip.started = true; state.best = null; checkBest();
   store.set('omreis.trip', state.trip);
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
-  watchGps(); render();
+  watchGps(); setSheet('peek'); render();
+  const fx = $('#startfx'); fx.hidden = false; setTimeout(() => { fx.hidden = true; }, 1600);
+  mapKey = ''; drawMap();
 }
 function closeTrip() {
   state.trip = null; state.best = null; state.alts = null; state.problems = []; state.problemKey = ''; state.modal = null;
@@ -529,6 +580,7 @@ async function refreshTrip() {
       leg.from = { ...leg.from, ...stops[a] };
       leg.to = { ...leg.to, ...stops[b] };
       leg.intermediateStops = stops.slice(a + 1, b);
+      leg.fullFrom = a;
       leg.full = stops.map(x => ({ lat: x.lat, lon: x.lon, arrival: x.arrival, departure: x.departure }));   // hele rit, om het voertuig ook vóór jouw halte te volgen
       leg.startTime = stops[a].departure || leg.startTime;
       leg.endTime = stops[b].arrival || leg.endTime;
@@ -551,6 +603,7 @@ async function refreshTrip() {
   store.set('omreis.trip', trip);
   evaluate(); render();
   changes.forEach(c => notify(c, 'Perronwijziging', 'omreis-perron'));
+  if (trip.started && !state.ride && !document.body.classList.contains('map-focus')) liveCamera();
   if (trip.started && Date.now() - lastBest > 55000) checkBest();
 }
 
@@ -773,12 +826,37 @@ function renderTrack() {
     </li>`;
   }).join('');
 
-  el.innerHTML = `
-    <div class="hero-trip"><div class="trip-nav"><button class="icon-btn" data-action="stop" aria-label="${trip.started ? 'Reis stoppen' : 'Terug naar opties'}">${svg('back')}</button><span class="eyebrow">${trip.started ? 'Onderweg naar' : 'Reis naar'}</span></div>
+  const live = trip.started && sev !== 'bad';
+  let header;
+  if (live) {
+    const nc = nowCard(L, now), st = steps[curStep], eta = st ? Math.max(0, mins(ms(st.end) - now)) : 0;
+    const nt = L.find(l => isTransit(l) && ms(l.startTime) > now);
+    let away = '';
+    if (st && st.kind === 'in' && nt && nt.full && nt.fullFrom != null) {
+      const passed = nt.full.filter(x => ms(x.departure || x.arrival) <= now).length, n = nt.fullFrom - passed + 1;
+      if (passed > 0 && n > 0) away = n === 1 ? 'Je halte is de volgende stop' : `Nog ${n} haltes van je vandaan`;
+    }
+    const label = !st ? 'Aangekomen' : st.kind === 'in' ? (eta <= 1 ? 'Nu instappen' : away ? 'Komt eraan' : 'Je volgende rit') : st.kind === 'out' ? 'Onderweg' : 'Lopen';
+    const nx = curStep >= 0 ? steps[curStep + 1] : null;
+    const track = L.map(l => `<i class="${isTransit(l) ? '' : 'w'}" style="flex:${Math.max(1, ms(l.endTime) - ms(l.startTime))}${isTransit(l) && hex(l.routeColor) ? `;background:${hex(l.routeColor)}` : ''}"></i>`).join('');
+    header = `<div class="livecard">
+      <div class="trip-nav"><button class="icon-btn" data-action="stop" aria-label="Reis stoppen">${svg('back')}</button><span class="eyebrow">Naar ${esc(toLabel || destOf(trip.itin).name)}</span><span class="state ${sev}"><i></i>${stateTxt}</span></div>
+      <div class="live-main">
+        <div class="eta">${st ? `<b class="num">${eta}</b><span>min</span>` : svg('check')}</div>
+        <div class="live-txt"><div class="k">${label}</div><div class="v">${nc.v}</div><div class="s">${away ? `${away} · ` : ''}${nc.s}</div></div>
+      </div>
+      <div class="track">${track}<em style="left:${pct.toFixed(1)}%"></em></div>
+      <div class="live-foot"><span>Aankomst <strong class="num">${hhmm(end)}</strong>${late >= 1 ? ` <span class="late">+${late}</span>` : ''}</span>${nx ? `<span class="nx">Daarna: ${nx.title}</span>` : ''}</div>
+    </div>`;
+  } else {
+    header = `    <div class="hero-trip"><div class="trip-nav"><button class="icon-btn" data-action="stop" aria-label="${trip.started ? 'Reis stoppen' : 'Terug naar opties'}">${svg('back')}</button><span class="eyebrow">${trip.started ? 'Onderweg naar' : 'Reis naar'}</span></div>
     <h1>${esc(toLabel || destOf(trip.itin).name)}</h1>
     <div class="arrive"><span>Aankomst <strong class="num">${hhmm(end)}</strong>${late >= 1 ? ` <span class="late">+${late}</span>` : ''} · ${dur(trip.itin.duration)}${walkMin(trip.itin) ? ` · ${walkMin(trip.itin)} min lopen` : ''}</span><span class="state ${sev}"><i></i>${stateTxt}</span></div>
-    ${trip.started ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}</div>
-    ${alert}${hero}${best}${alts}${L.map(l => alertsHtml(l.alerts)).join('')}
+    ${trip.started ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}</div>`;
+  }
+  el.innerHTML = `
+    ${header}
+    ${alert}${live ? '' : hero}${best}${alts}${L.map(l => alertsHtml(l.alerts)).join('')}
     <h2>Stap voor stap</h2>
     <ol class="steps">${stepsHtml}</ol>
     <div class="updated">Bijgewerkt om ${hhmm(trip.updated)}${navigator.onLine ? '' : ' · offline'}</div>
@@ -910,14 +988,14 @@ function watchGps() {
 }
 function useMyLocation(quiet) {
   if (!navigator.geolocation) { if (!quiet) setMsg('Je browser geeft geen locatie door.', true); return; }
-  if (!quiet) $('#from').value = 'Locatie bepalen…';
+  if (!quiet) { $('#from').value = 'Locatie bepalen…'; state.locating = true; }
   navigator.geolocation.getCurrentPosition(p => {
-    state.gps = { lat: p.coords.latitude, lon: p.coords.longitude, at: Date.now() };
+    state.gps = { lat: p.coords.latitude, lon: p.coords.longitude, at: Date.now() }; state.locating = false;
     if (quiet && (state.from || $('#from').value || state.trip)) { drawMe(); if (mapReady && !state.trip) map.easeTo({ center: [state.gps.lon, state.gps.lat], zoom: 14 }); return; }
     state.from = { label: 'Mijn locatie', place: `${state.gps.lat},${state.gps.lon}`, lat: state.gps.lat, lon: state.gps.lon };
     $('#from').value = 'Mijn locatie';
     drawMe(); watchGps(); endpointsChanged();
-  }, () => { if (!quiet) { $('#from').value = ''; setMsg('Locatie ophalen lukte niet. Geef toestemming of typ je vertrekpunt.', true); } },
+  }, () => { state.locating = false; if (!quiet) { $('#from').value = ''; state.gpsDenied = true; state.showFrom = true; renderPlan(); } },
     { enableHighAccuracy: true, timeout: 15000 });
 }
 
@@ -974,10 +1052,11 @@ document.addEventListener('click', e => {
   switch (a.dataset.action) {
     case 'select':
       if (i === state.sel) openTrip(state.results[i], `${state.from.label} → ${state.to.label}`);
-      else { state.sel = i; renderPlan(); drawMap(); }
+      else { state.sel = i; state.othersOpen = false; renderPlan(); drawMap(); $('#sheet-body').scrollTop = 0; }
       break;
     case 'page': searchPlan({ cursor: state.cursors[a.dataset.dir] }); break;
     case 'begin': beginTrip(); break;
+    case 'showfrom': state.showFrom = true; renderPlan(); $('#from').focus(); break;
     case 'saveline': {
       const l = lineOf(state.ride.leg), k = state.lines.findIndex(x => lineKey(x) === lineKey(l));
       k >= 0 ? state.lines.splice(k, 1) : state.lines.unshift(l);
@@ -1082,6 +1161,7 @@ $('#when-mode').addEventListener('change', () => searchPlan());
 $('#when-now').addEventListener('click', () => { $('#when').value = ''; searchPlan(); });
 addEventListener('online', () => { render(); refreshTrip(); });
 addEventListener('offline', render);
+document.addEventListener('toggle', e => { if (e.target.classList && e.target.classList.contains('others')) state.othersOpen = e.target.open; }, true);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(true); });
 
 let lastRefresh = 0;
