@@ -289,3 +289,10 @@ button.dep{width:100%;background:none;border:0;text-align:left}
 body.map-focus .search.floating,body.map-focus #quick{transform:translateY(-280px)}
 body.map-focus .sheet{transform:translateY(calc(100% - 30px))}
 body.map-focus .maplibregl-ctrl-top-left{top:calc(60px + env(safe-area-inset-top))}
+
+/* ---------- pop-up meldingen ---------- */
+.toast{position:fixed;z-index:70;top:calc(12px + env(safe-area-inset-top));left:12px;right:12px;max-width:536px;margin:0 auto;padding:14px 16px;border-radius:var(--r-lg);background:var(--brand-deep);color:#fff;box-shadow:0 16px 40px rgba(26,18,56,.35);animation:drop .3s ease}
+.toast strong{display:block;font-weight:800;margin-bottom:2px}
+.toast span{font-size:.92rem;opacity:.92}
+.toast.bad{background:#D12C3F}.toast.warn{background:#2B1A66}.toast.good{background:var(--lime);color:var(--lime-ink)}
+@keyframes drop{from{transform:translateY(-30px);opacity:0}}
