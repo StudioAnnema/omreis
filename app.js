@@ -104,7 +104,7 @@ function initMap() {
   const def = MAPS[store.get('omreis.map2', null)] || MAPS.circuit || { style: 'https://tiles.openfreemap.org/styles/liberty' };
   map = new maplibregl.Map({
     container: 'map', style: def.style,
-    center: [5.2, 52.2], zoom: 7, pitch: def.pitch || 0, maxPitch: 65, attributionControl: false, antialias: true, fadeDuration: 150
+    center: [5.2, 52.2], zoom: 7, minZoom: 6.3, maxBounds: [[2.2, 50.3], [8.3, 54.0]], pitch: def.pitch || 0, maxPitch: 65, attributionControl: false, antialias: true, fadeDuration: 150
   });
   mapPitch = def.pitch || 0;
   map.touchZoomRotate.disableRotation(); map.touchPitch.disable(); map.dragRotate.disable();   // op een telefoon alleen schuiven en knijpen
