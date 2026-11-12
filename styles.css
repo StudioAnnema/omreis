@@ -296,3 +296,10 @@ body.map-focus .maplibregl-ctrl-top-left{top:calc(60px + env(safe-area-inset-top
 .toast span{font-size:.92rem;opacity:.92}
 .toast.bad{background:#D12C3F}.toast.warn{background:#2B1A66}.toast.good{background:var(--lime);color:var(--lime-ink)}
 @keyframes drop{from{transform:translateY(-30px);opacity:0}}
+
+/* ---------- 3D-knop, looptijd ---------- */
+.map-btn.txt{font-weight:800;font-size:.9rem;color:var(--ink)}
+.map-btn.txt.on{color:#fff}
+.map-btns{top:auto;bottom:calc(100% + 12px)}
+#plan-form[hidden] ~ .map-btns{top:auto}
+.itin .itin-top{flex-wrap:wrap}

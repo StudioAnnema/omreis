@@ -38,15 +38,16 @@
   }
   const firstSymbol = map => (map.getStyle().layers.find(l => l.type === 'symbol') || {}).id;
   // Gebouwen in 3D, zodat de kaart diepte krijgt als je inzoomt.
-  function buildings3d(map, color, opacity) {
+  function buildings3d(map, color, opacity, from) {
+    const z = from || 13;
     try {
       map.setLayoutProperty('building', 'visibility', 'none');
       map.addLayer({
-        id: 'omreis-3d', type: 'fill-extrusion', source: 'openmaptiles', 'source-layer': 'building', minzoom: 13,
+        id: 'omreis-3d', type: 'fill-extrusion', source: 'openmaptiles', 'source-layer': 'building', minzoom: z,
         paint: {
           'fill-extrusion-color': color, 'fill-extrusion-opacity': opacity,
-          'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 13, 0, 14.5, ['coalesce', ['get', 'render_height'], 8]],
-          'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 13, 0, 14.5, ['coalesce', ['get', 'render_min_height'], 0]]
+          'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], z, 0, z + 1.2, ['coalesce', ['get', 'render_height'], 8]],
+          'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], z, 0, z + 1.2, ['coalesce', ['get', 'render_min_height'], 0]]
         }
       }, firstSymbol(map));
     } catch (e) { /* stijl zonder gebouwenlaag */ }
@@ -62,23 +63,23 @@
       try { map.setPaintProperty(l.id, 'text-color', '#fff'); map.setPaintProperty(l.id, 'text-halo-color', 'rgba(20,14,50,.85)'); map.setPaintProperty(l.id, 'text-halo-width', 1.6); } catch (e) {}
     });
   }
-  // Racekaart: alles donker en vlak, alleen het spoor en de wegen als dunne lijnen.
-  function circuit(map) {
-    ['park', 'landuse_residential', 'aeroway-area', 'aeroway-runway', 'aeroway-runway-casing', 'highway-shield-non-us', 'label_other', 'water_name_point_label', 'water_name_line_label'].forEach(id => { try { map.setLayoutProperty(id, 'visibility', 'none'); } catch (e) {} });
-    try {
-      map.setLayerZoomRange('railway', 7, 24);
-      map.setLayerZoomRange('building', 15.5, 24); map.setPaintProperty('building', 'fill-color', '#ECE8F5');   // pas zichtbaar op loopniveau
-      map.setPaintProperty('railway', 'line-width', ['interpolate', ['linear'], ['zoom'], 7, 1.4, 12, 3.2, 16, 5.5]);
-      map.setLayerZoomRange('highway_minor', 14.5, 24);
-      map.setPaintProperty('highway_minor', 'line-width', ['interpolate', ['linear'], ['zoom'], 13.5, 0.6, 18, 5]);
-      map.setPaintProperty('highway_major_inner', 'line-width', ['interpolate', ['linear'], ['zoom'], 10, 0.8, 18, 9]);
-      map.setLayerZoomRange('highway-name-major', 14.5, 24);
-    } catch (e) { /* laag ontbreekt */ }
+  // Moderne ondergrond: brede zachte wegen zonder randen, rustige vlakken, weinig namen, gebouwen met diepte.
+  function modern(map) {
+    ['landuse_residential', 'aeroway-area', 'aeroway-runway', 'aeroway-runway-casing', 'highway-shield-non-us', 'label_other', 'water_name_point_label', 'water_name_line_label', 'highway_motorway_casing'].forEach(id => { try { map.setLayoutProperty(id, 'visibility', 'none'); } catch (e) {} });
+    const exp = (...s) => ['interpolate', ['exponential', 1.6], ['zoom'], ...s];
+    const set = (id, k, v) => { try { map.setPaintProperty(id, k, v); } catch (e) {} };
+    try { map.setLayerZoomRange('highway_minor', 12.5, 24); map.setLayerZoomRange('railway', 7, 24); map.setLayerZoomRange('highway-name-major', 14, 24); map.setLayerZoomRange('highway-name-minor', 15.5, 24); } catch (e) {}
+    set('highway_minor', 'line-width', exp(12.5, 0.6, 14, 2.5, 16, 9, 18, 26));
+    set('highway_major_inner', 'line-width', exp(10, 1.2, 13, 4, 16, 13, 18, 32));
+    ['highway_motorway_inner', 'highway_motorway_bridge_inner', 'tunnel_motorway_inner'].forEach(id => set(id, 'line-width', exp(6, 1, 10, 2.5, 13, 6, 16, 16, 18, 36)));
+    set('railway', 'line-width', ['interpolate', ['linear'], ['zoom'], 7, 1.4, 12, 3, 16, 5]);
+    ['label_city', 'label_city_capital', 'label_town', 'label_village'].forEach(id => { set(id, 'text-color', '#2B1A66'); set(id, 'text-halo-color', '#FFFFFF'); set(id, 'text-halo-width', 1.6); });
+    ['highway-name-major', 'highway-name-minor'].forEach(id => { set(id, 'text-color', '#7A739B'); set(id, 'text-halo-color', '#FFFFFF'); set(id, 'text-halo-width', 1.2); });
   }
   window.OMREIS_MAPS = {
     circuit: {
-      label: 'Lijnennet', note: 'Spoor en buslijnen voorop, de rest van de kaart op de achtergrond', style: OFM + 'positron', pitch: 0,
-      tweak: m => { recolor(m, { land: '#F8F7FC', water: '#DCE6FF', green: '#F8F7FC', built: '#F8F7FC', building: '#F8F7FC', rail: '#2B1A66', road: '#ECE8F5', text: '#5A5280' }); declutter(m, '#E4DEF2'); circuit(m); }
+      label: 'Lijnennet', note: 'Moderne lichte kaart met het spoor en de buslijnen voorop', style: OFM + 'positron', pitch: 0,
+      tweak: m => { recolor(m, { land: '#EEEBF5', water: '#C7DAFF', green: '#D9EDCF', built: '#EEEBF5', building: '#E3DEEE', rail: '#2B1A66', road: '#FFFFFF', text: '#5F5884' }); declutter(m, '#DCD3F3'); modern(m); buildings3d(m, '#E1DCEE', 1, 14.8); }
     },
     liberty: { label: 'Kleur', note: 'Zoals een gewone wegenkaart, alle kleuren', style: OFM + 'liberty' },
     bright: { label: 'Fris', note: 'Helder en contrastrijk, gele hoofdwegen', style: OFM + 'bright' },

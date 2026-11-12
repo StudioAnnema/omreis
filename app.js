@@ -17,7 +17,7 @@ const state = {
   alts: null, altsLoading: false, altsFor: '',
   modal: null,                    // pop-up "andere vertrektijd"
   gps: null,
-  stopsOpen: false, showAll: false, ride: null, best: null, near: null, vehOn: store.get('omreis.veh', true),
+  stopsOpen: false, showAll: false, view3d: true, ride: null, best: null, near: null, vehOn: store.get('omreis.veh', true),
   favs: store.get('omreis.favs', []),
   saved: store.get('omreis.saved', []), places: store.get('omreis.places', {}), recent: store.get('omreis.recent', []),
   pickFor: null, editing: false,
@@ -82,6 +82,7 @@ function distM(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 const placeOf = p => p.stopId || `${p.lat},${p.lon}`;
+const walkMin = it => Math.round(it.legs.filter(l => l.mode === 'WALK').reduce((s, l) => s + (l.duration || 0), 0) / 60);
 const transfersText = n => n === 0 ? 'rechtstreeks' : n === 1 ? '1 overstap' : `${n} overstappen`;
 const platform = p => p.track ? ` · perron ${esc(p.track)}` : '';
 
@@ -181,9 +182,22 @@ function drawMap() {
   map.getSource('pts').setData(fc(dots));
   if (!all.length) return;
   if (all.length === 1) return map.flyTo({ center: all[0], zoom: 15, pitch: mapPitch });
+  if (state.trip?.started && state.view3d && !state.ride) return tripCamera();
   const b = all.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(all[0], all[0]));
   const sheetH = Math.min($('#sheet').offsetHeight, innerHeight * 0.55);
-  map.fitBounds(b, { padding: { top: $('#plan-form').hidden ? 70 : 232, bottom: sheetH + 24, left: 36, right: 36 }, maxZoom: 15.5, pitch: mapPitch, duration: 900 });
+  map.fitBounds(b, { padding: { top: $('#plan-form').hidden ? 70 : 232, bottom: sheetH + 24, left: 36, right: 36 }, maxZoom: 15.5, pitch: mapPitch, bearing: 0, duration: 900 });
+}
+/* Reisweergave: schuin van achteren meekijken in de rijrichting, zoals een navigatiescherm. */
+function tripCamera() {
+  const trip = state.trip; if (!mapReady || !trip) return;
+  const L = trip.itin.legs, now = Date.now();
+  const cur = L.find(l => ms(l.endTime) > now) || L[L.length - 1];
+  const riding = isTransit(cur) && ms(cur.startTime) <= now;
+  const c = (riding && ridePosition(cur, now)) || (state.gps && now - state.gps.at < 120000 ? [state.gps.lon, state.gps.lat] : [cur.from.lon, cur.from.lat]);
+  const r = x => x * Math.PI / 180, la1 = r(c[1]), la2 = r(cur.to.lat), dLon = r(cur.to.lon - c[0]);
+  const bearing = Math.atan2(Math.sin(dLon) * Math.cos(la2), Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon)) * 180 / Math.PI;
+  const sheetH = Math.min($('#sheet').offsetHeight, innerHeight * 0.55);
+  map.easeTo({ center: c, zoom: 15.8, pitch: 60, bearing, offset: [0, -sheetH / 2 + 30], duration: 1500 });
 }
 function drawMe() {
   if (!mapReady || !state.gps) return;
@@ -447,7 +461,7 @@ function itinCard(it, i, cta, action, selected, label) {
   const cancelled = it.legs.some(l => l.cancelled);
   const sub = first ? `${hhmm(first.startTime)}${delayHtml(first.startTime, first.scheduledStartTime)} vanaf ${esc(first.from.name)}${platform(first.from)}` : 'Alleen lopen';
   return `<button type="button" class="itin${selected ? ' sel' : ''}" data-action="${action}" data-i="${i}">
-    <span class="itin-top"><span class="itin-time num">${hhmm(it.startTime)}<i>–</i>${hhmm(it.endTime)}${cancelled ? '<span class="pill">rijdt niet</span>' : ''}</span><span class="itin-dur">${dur(it.duration)} · ${transfersText(it.transfers)}</span></span>
+    <span class="itin-top"><span class="itin-time num">${hhmm(it.startTime)}<i>–</i>${hhmm(it.endTime)}${cancelled ? '<span class="pill">rijdt niet</span>' : ''}</span><span class="itin-dur">${dur(it.duration)} · ${transfersText(it.transfers)}${walkMin(it) ? ` · ${walkMin(it)} min lopen` : ''}</span></span>
     <span class="chips">${legs.map(chip).join('<span class="sep"></span>')}</span>
     <span class="itin-foot"><span>${label ? `<b class="fast">${label}</b>` : ''}${sub}</span><span class="cta">${cta}</span></span>
   </button>`;
@@ -493,11 +507,13 @@ function beginTrip() {
   store.set('omreis.trip', state.trip);
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
   watchGps(); render();
+  mapKey = ''; drawMap();   // naar de 3D-reisweergave
 }
 function closeTrip() {
   state.trip = null; state.best = null; state.alts = null; state.problems = []; state.problemKey = ''; state.modal = null;
   localStorage.removeItem('omreis.trip');
   render();
+  if (mapReady) map.easeTo({ pitch: mapPitch, bearing: 0, duration: 600 });
   if (state.from && state.to) searchPlan({ silent: state.results.length > 0 });
 }
 function recalc(itin) {
@@ -545,6 +561,7 @@ async function refreshTrip() {
   store.set('omreis.trip', trip);
   evaluate(); render();
   changes.forEach(c => notify(c, 'Perronwijziging', 'omreis-perron'));
+  if (trip.started && state.view3d && !state.ride && !document.body.classList.contains('map-focus')) tripCamera();   // camera volgt je reis
   if (trip.started && Date.now() - lastBest > 55000) checkBest();
 }
 
@@ -639,7 +656,7 @@ async function loadAlts(manual) {
 async function openLegOptions(i) {
   const trip = state.trip, L = trip.itin.legs, leg = L[i];
   const earliest = Math.max(Date.now(), i > 0 ? ms(L[i - 1].endTime) : 0);
-  state.modal = { leg: i, title: `Vanaf ${leg.from.name}`, sub: `In plaats van ${legName(leg)} van ${hhmm(leg.startTime)}`, loading: true, list: [] };
+  state.modal = { leg: i, title: 'Kies zelf je reis', sub: `Vanaf ${leg.from.name === 'START' ? 'je vertrekpunt' : leg.from.name}`, loading: true, list: [] };
   renderModal();
   try {
     const data = await api('/v5/plan', { fromPlace: placeOf(leg.from), toPlace: placeOf(destOf(trip.itin)), time: new Date(earliest).toISOString(), numItineraries: 6 });
@@ -678,7 +695,7 @@ function nowCard(L, now) {
   if (ms(leg.startTime) > now) {
     if (!isTransit(leg)) return { k: 'Zo meteen', v: wait > 0 ? `Vertrek over ${wait} min` : 'Vertrek nu', s: `Loop ${dur(leg.duration)} naar ${toName}` };
     let extra = '';
-    if (state.gps && leg.from.lat) { const d = distM(state.gps, leg.from); if (d > 80) extra = ` · nog ${d < 1000 ? Math.round(d / 10) * 10 + ' m' : (d / 1000).toFixed(1) + ' km'} naar de halte`; }
+    if (state.gps && leg.from.lat) { const d = distM(state.gps, leg.from); if (d > 80) extra = ` · nog ${d < 1000 ? Math.round(d / 10) * 10 + ' m' : (d / 1000).toFixed(1) + ' km'} naar de halte, ongeveer ${Math.max(1, Math.ceil(d / 75))} min lopen`; }
     return { k: wait <= 0 ? 'Nu instappen' : `Instappen over ${wait} min`, v: `${esc(legName(leg))} richting ${esc(leg.headsign || leg.to.name)}`, s: `${hhmm(leg.startTime)} vanaf ${esc(leg.from.name)}${platform(leg.from)}${extra}` };
   }
   if (!isTransit(leg)) return { k: 'Nu', v: `Loop naar ${toName}`, s: `Nog ongeveer ${Math.max(1, mins(ms(leg.endTime) - now))} min${platform(leg.to)}` };
@@ -730,7 +747,6 @@ function renderTrack() {
     return `<div class="leg ${done ? 'done' : ''} ${leg.cancelled ? 'cancel' : ''}" style="--c:${c || 'var(--accent)'}">
       ${pt(leg.from, leg.startTime, leg.scheduledStartTime)}
       <details class="ride"${active ? ' open' : ''}><summary>${chip(leg)}<span>richting ${esc(leg.headsign || leg.to.name)}</span>${leg.cancelled ? '<span class="pill">rijdt niet</span>' : ''}${mid.length ? `<span class="tog">${mid.length} ${mid.length === 1 ? 'tussenhalte' : 'tussenhaltes'}</span>` : ''}</summary>${midHtml}</details>
-      ${future ? `<button class="leg-opt" data-action="legopt" data-i="${i}">Eerdere of latere rit kiezen</button>` : ''}
       ${pt(leg.to, leg.endTime, leg.scheduledEndTime)}
     </div>`;
   }).join('');
@@ -738,14 +754,14 @@ function renderTrack() {
   el.innerHTML = `
     <div class="hero-trip"><div class="trip-nav"><button class="icon-btn" data-action="stop" aria-label="${trip.started ? 'Reis stoppen' : 'Terug naar opties'}">${svg('back')}</button><span class="eyebrow">${trip.started ? 'Onderweg naar' : 'Reis naar'}</span></div>
     <h1>${esc(toLabel || destOf(trip.itin).name)}</h1>
-    <div class="arrive"><span>Aankomst <strong class="num">${hhmm(end)}</strong>${late >= 1 ? ` <span class="late">+${late}</span>` : ''} · ${dur(trip.itin.duration)}</span><span class="state ${sev}"><i></i>${stateTxt}</span></div>
+    <div class="arrive"><span>Aankomst <strong class="num">${hhmm(end)}</strong>${late >= 1 ? ` <span class="late">+${late}</span>` : ''} · ${dur(trip.itin.duration)}${walkMin(trip.itin) ? ` · ${walkMin(trip.itin)} min lopen` : ''}</span><span class="state ${sev}"><i></i>${stateTxt}</span></div>
     ${trip.started ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}</div>
     ${alert}${hero}${best}${alts}${L.map(l => alertsHtml(l.alerts)).join('')}
     <h2>Je reis</h2>
     <div class="timeline">${legsHtml}</div>
     <div class="updated">Bijgewerkt om ${hhmm(trip.updated)}${navigator.onLine ? '' : ' · offline'}</div>
     <div class="actions">
-      <button class="btn" data-action="alts">Andere route vanaf hier</button>
+      <button class="btn" data-action="manual">Zelf reis kiezen</button>
       <button class="btn" data-action="refresh">${svg('refresh')}Ververs</button>
     </div>
     <details class="more"><summary>Meer</summary><div>
@@ -902,6 +918,7 @@ function render() {
   $('#plan-form').hidden = view !== 'plan';
   $('#quick').hidden = view !== 'plan';
   $('#stops-btn').hidden = view === 'stops' || view === 'ride';
+  const b3 = $('#view3d-btn'); b3.hidden = !(view === 'trip' && state.trip.started); b3.classList.toggle('on', state.view3d);
   $('#net').hidden = navigator.onLine;
   if (view === 'trip') {
     const open = [...document.querySelectorAll('#view-track details')].map(d => d.open);   // stand van uitklappers behouden
@@ -962,6 +979,13 @@ document.addEventListener('click', e => {
     case 'center': if (state.gps && mapReady) map.easeTo({ center: [state.gps.lon, state.gps.lat], zoom: Math.max(map.getZoom(), 14) }); else useMyLocation(true); break;
     case 'switch': openTrip(state.alts.list[i]); break;
     case 'legopt': openLegOptions(i); break;
+    case 'manual': {
+      const L = state.trip.itin.legs, now = Date.now();
+      const k = L.findIndex(l => isTransit(l) && ms(l.startTime) > now);
+      if (k < 0) alert('Je zit al in je laatste rit; er valt niets meer te kiezen.'); else openLegOptions(k);
+      break;
+    }
+    case 'view3d': state.view3d = !state.view3d; render(); mapKey = ''; drawMap(); break;
     case 'pickleg': pickLegOption(i); break;
     case 'closemodal': state.modal = null; renderModal(); break;
     case 'alts': loadAlts(true); break;
