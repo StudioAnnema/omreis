@@ -1029,10 +1029,13 @@ function watchGps() {
 /* Eerst snel en grof (werkt ook binnen), daarna pas nauwkeurig; geweigerde toestemming meteen doorgeven. */
 function getPos(ok, fail) {
   if (!navigator.geolocation) return fail({ code: 0 });
-  navigator.geolocation.getCurrentPosition(ok, e => {
-    if (e && e.code === 1) return fail(e);
-    navigator.geolocation.getCurrentPosition(ok, fail, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
-  }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 });
+  // Blijven luisteren tot er een positie is: op iPhone komt de eerste meting vaak pas na een paar seconden,
+  // en een losse eenmalige vraag geeft het dan te vroeg op.
+  let done = false, last = { code: 3 };
+  const finish = (fn, arg) => { if (done) return; done = true; clearTimeout(timer); navigator.geolocation.clearWatch(id); fn(arg); };
+  const id = navigator.geolocation.watchPosition(p => finish(ok, p), e => { last = e; if (e.code === 1) finish(fail, e); },
+    { enableHighAccuracy: true, maximumAge: 60000, timeout: 25000 });
+  const timer = setTimeout(() => finish(fail, last), 26000);
 }
 function useMyLocation(quiet) {
   if (!navigator.geolocation) { if (!quiet) setMsg('Je browser geeft geen locatie door.', true); return; }
