@@ -139,6 +139,7 @@ function initMap() {
     map.addLayer({ id: 'stops', type: 'circle', source: 'stops', minzoom: 14, paint: { 'circle-radius': ['case', ['get', 'rail'], 9, 4.5], 'circle-color': ['case', ['get', 'rail'], BRAND, '#fff'], 'circle-stroke-color': ['case', ['get', 'rail'], '#fff', '#A99BE8'], 'circle-stroke-width': ['case', ['get', 'rail'], 3, 2] } });
     map.addLayer({ id: 'stops-name', type: 'symbol', source: 'stops', minzoom: 14, filter: ['==', ['get', 'rail'], true], layout: { 'text-field': ['get', 'name'], 'text-size': 13, 'text-font': ['Noto Sans Bold'], 'text-anchor': 'top', 'text-offset': [0, 1] }, paint: { 'text-color': DEEP, 'text-halo-color': '#fff', 'text-halo-width': 2 } });
     map.addLayer({ id: 'pts', type: 'circle', source: 'pts', paint: { 'circle-radius': ['get', 'r'], 'circle-color': ['get', 'fill'], 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 3.5 } });
+    map.addLayer({ id: 'pts-label', type: 'symbol', source: 'pts', filter: ['!=', ['get', 'label'], ''], layout: { 'text-field': ['get', 'label'], 'text-size': 12.5, 'text-font': ['Noto Sans Bold'], 'text-anchor': 'top', 'text-offset': [0, 0.9], 'text-allow-overlap': true }, paint: { 'text-color': DEEP, 'text-halo-color': '#fff', 'text-halo-width': 2 } });
     map.addLayer({ id: 'veh-glow', type: 'circle', source: 'veh', paint: { 'circle-radius': ['case', ['get', 'sel'], 24, 15], 'circle-color': ['get', 'color'], 'circle-opacity': 0.3, 'circle-blur': 0.6 } });
     map.addLayer({ id: 'veh-c', type: 'circle', source: 'veh', paint: { 'circle-radius': ['case', ['get', 'sel'], 11, 7.5], 'circle-color': ['get', 'color'], 'circle-stroke-color': ['case', ['get', 'sel'], '#C8F53C', '#fff'], 'circle-stroke-width': ['case', ['get', 'sel'], 4, 2.2] } });
     map.addLayer({ id: 'veh-t', type: 'symbol', source: 'veh', layout: { 'text-field': ['get', 'name'], 'text-size': 12.5, 'text-font': ['Noto Sans Bold'], 'text-anchor': 'left', 'text-offset': [0.95, 0], 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': '#fff', 'text-halo-color': '#1A1238', 'text-halo-width': 2.2 } });
@@ -183,7 +184,7 @@ function drawMap() {
   if (key === mapKey) return;
   mapKey = key;
   const lines = [], dots = [], all = [];
-  const dot = (p, big, color, fill) => dots.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] }, properties: { r: big ? 8 : 5, color: color || DEEP, fill: fill || '#fff' } });
+  const dot = (p, big, color, fill, label) => dots.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] }, properties: { r: big ? 8 : label ? 7 : 5, color: color || DEEP, fill: fill || '#fff', label: label || '' } });
   if (itin) {
     itin.legs.forEach(l => {
       const line = l.legGeometry?.points ? decodePolyline(l.legGeometry.points, l.legGeometry.precision) : [[l.from.lon, l.from.lat], [l.to.lon, l.to.lat]];
@@ -191,7 +192,7 @@ function drawMap() {
       const transit = isTransit(l);
       lines.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: line }, properties: { kind: transit ? 'transit' : 'walk', color: l.cancelled ? '#D12C3F' : (hex(l.routeColor) || BRAND), opacity: l.cancelled ? .45 : 1 } });
     });
-    itin.legs.forEach((l, i) => { if (i > 0 && isTransit(l)) dot(l.from, false); });
+    itin.legs.forEach((l, i) => { if (i > 0 && isTransit(l)) dot(l.from, false, null, '#C8F53C', `Overstap ${nice(l.from.name)}`); });
     dot(itin.legs[0].from, true); dot(itin.legs[itin.legs.length - 1].to, true, BRAND, '#C8F53C');
   } else {
     if (state.from?.lat) { all.push([state.from.lon, state.from.lat]); dot(state.from, true); }
@@ -862,6 +863,8 @@ function renderTrack() {
     }
     const label = !st ? 'Aangekomen' : st.kind === 'in' ? (eta <= 1 ? 'Nu instappen' : away ? 'Komt eraan' : 'Je volgende rit') : st.kind === 'out' ? 'Onderweg' : 'Lopen';
     const nx = curStep >= 0 ? steps[curStep + 1] : null;
+    const rides = L.filter(isTransit);
+    const chain = rides.length < 2 ? '' : `<div class="chain">${rides.map((l, i) => chip(l) + (i < rides.length - 1 ? `<span class="xfer">${svg('swap')}Overstap ${esc(nice(l.to.name))} · ${Math.max(0, mins(ms(rides[i + 1].startTime) - ms(l.endTime)))} min</span>` : '')).join('')}</div>`;
     const track = L.map(l => `<i class="${isTransit(l) ? '' : 'w'}" style="flex:${Math.max(1, ms(l.endTime) - ms(l.startTime))}${isTransit(l) && hex(l.routeColor) ? `;background:${hex(l.routeColor)}` : ''}"></i>`).join('');
     header = `<div class="livecard">
       <div class="trip-nav"><button class="icon-btn" data-action="stop" aria-label="Reis stoppen">${svg('back')}</button><span class="eyebrow">Naar ${esc(toLabel || destOf(trip.itin).name)}</span><span class="state ${sev}"><i></i>${stateTxt}</span></div>
@@ -870,6 +873,7 @@ function renderTrack() {
         <div class="live-txt"><div class="k">${label}</div><div class="v">${nc.v}</div><div class="s">${away ? `${away} · ` : ''}${nc.s}</div></div>
       </div>
       <div class="track">${track}<em style="left:${pct.toFixed(1)}%"></em></div>
+      ${chain}
       <div class="live-foot"><span>Aankomst <strong class="num">${hhmm(end)}</strong>${late >= 1 ? ` <span class="late">+${late}</span>` : ''}</span>${nx ? `<span class="nx">Daarna: ${nx.title}</span>` : ''}</div>
     </div>`;
   } else {
@@ -928,17 +932,29 @@ function renderRide() {
   if (r.error || !r.leg) { el.innerHTML = nav('Rit') + `<div class="msg err">Rit ophalen lukte niet (${esc(r.error || 'onbekend')}).</div>`; return; }
   const leg = r.leg, st = [leg.from, ...(leg.intermediateStops || []), leg.to], now = Date.now();
   const nx = st.findIndex(x => ms(x.arrival || x.departure) > now);
+  const cur = st.findIndex(x => ms(x.departure || x.arrival) > now);   // eerste halte die nog niet verlaten is
+  const atStop = cur > 0 && st[cur].arrival && ms(st[cur].arrival) <= now;
   const late = nx >= 0 ? mins(ms(st[nx].arrival || st[nx].departure) - ms(st[nx].scheduledArrival || st[nx].scheduledDeparture || st[nx].arrival || st[nx].departure)) : 0;
-  const status = leg.cancelled ? 'Deze rit rijdt niet' : nx < 0 ? 'Rit is afgelopen'
-    : nx === 0 ? `Vertrekt om ${hhmm(st[0].departure)} vanaf ${esc(st[0].name)}`
-    : `Volgende halte: <strong>${esc(st[nx].name)}</strong> om ${hhmm(st[nx].arrival || st[nx].departure)}`;
+  const status = leg.cancelled ? 'Deze rit rijdt niet' : cur < 0 ? 'Rit is afgelopen'
+    : cur === 0 ? `Vertrekt om ${hhmm(st[0].departure)} vanaf ${esc(nice(st[0].name))}`
+    : atStop ? `Staat nu bij <strong>${esc(nice(st[cur].name))}</strong>`
+    : `Rijdt nu tussen <strong>${esc(nice(st[cur - 1].name))}</strong> en <strong>${esc(nice(st[cur].name))}</strong>`;
+  const vcolor = hex(leg.routeColor) || (isRail(leg.mode) ? '#2B1A66' : '#5B2EFF');
+  const vdot = `<span class="veh-dot" style="background:${vcolor}">${svg(MODE_IC[leg.mode] || (isRail(leg.mode) ? 'train' : 'bus'))}</span>`;
   const rows = st.map((x, i) => {
     const t = (i === 0 ? x.departure : x.arrival) || x.departure || x.arrival, sch = (i === 0 ? x.scheduledDeparture : x.scheduledArrival) || x.scheduledDeparture;
-    return `<div class="pt ${ms(x.departure || x.arrival) <= now ? 'passed' : ''}"><span class="t ${x.cancelled ? 'strike' : ''}">${hhmm(t)}${sch ? delayHtml(t, sch) : ''}</span><span class="n">${esc(x.name)}</span>${x.track ? `<span class="trk">perron ${esc(x.track)}</span>` : ''}</div>`;
+    const here = i === cur && !leg.cancelled;
+    let pre = '';
+    if (here && cur > 0 && !atStop) {
+      const d = ms(st[i - 1].departure || st[i - 1].arrival), arr = ms(x.arrival || x.departure), left = Math.max(0, mins(arr - now));
+      pre = `<div class="here">${vdot}<span>Rijdt nu hier · ${left < 1 ? 'komt zo aan' : `nog ${left} min`} tot ${esc(nice(x.name))}</span><i style="width:${Math.round(100 * Math.max(0, Math.min(1, (now - d) / (arr - d || 1))))}%"></i></div>`;
+    }
+    const tag = here && atStop ? `${vdot}<span class="tag">staat nu hier</span>` : here && cur === 0 ? '<span class="tag">vertrekt hier</span>' : '';
+    return `${pre}<div class="pt ${ms(x.departure || x.arrival) <= now ? 'passed' : ''} ${here && atStop ? 'at' : ''}"><span class="t ${x.cancelled ? 'strike' : ''}">${hhmm(t)}${sch ? delayHtml(t, sch) : ''}</span><span class="n">${esc(nice(x.name))}${tag}</span>${x.track ? `<span class="trk">perron ${esc(x.track)}</span>` : ''}</div>`;
   }).join('');
   const savedLine = state.lines.some(l => lineKey(l) === lineKey(lineOf(leg)));
   el.innerHTML = `<div class="hero-trip">${nav(leg.agencyName || 'Rit')}<button class="icon-btn star save-line ${savedLine ? 'on' : ''}" data-action="saveline" aria-label="${savedLine ? 'Lijn verwijderen uit opgeslagen' : 'Lijn opslaan'}" title="Lijn opslaan">${svg('star')}</button>
-      <h1>${esc(legName(leg))} naar ${esc(leg.headsign || leg.to.name)}</h1>
+      <h1>${esc(rideName(leg, true))} naar ${esc(nice(leg.headsign || leg.to.name))}</h1>
       <div class="arrive"><span>${status}</span><span class="state ${leg.cancelled ? 'bad' : late >= 2 ? 'warn' : 'ok'}"><i></i>${leg.cancelled ? 'Vervalt' : late >= 1 ? `+${late} min` : 'Op tijd'}</span></div>
     </div>
     ${alertsHtml(leg.alerts)}
@@ -1199,6 +1215,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) tick
 
 let lastRefresh = 0;
 function tick(force) {
+  if (!document.hidden && state.ride && state.ride.leg) { const sc = $('#sheet-body').scrollTop; renderRide(); $('#sheet-body').scrollTop = sc; }
   if (document.hidden || state.stopsOpen || state.ride || !state.trip) return;
   evaluate(); if (!state.modal) render();
   // alleen een gestarte reis wordt bewaakt; al het andere ververs je zelf

@@ -407,3 +407,19 @@ body.map-focus #searchwrap{transform:translateY(-320px)}
 .others summary::after{content:" ▾"}
 .others[open] summary::after{content:" ▴"}
 .others .whenbox{margin:4px 0 10px}
+
+/* ---------- overstap zichtbaar + voertuig tussen de haltes ---------- */
+.sheet[data-size=peek]{max-height:356px}
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:2px 0 12px}
+.chain .chip{background:rgba(255,255,255,.16);color:#fff}
+.chain .xfer{display:inline-flex;align-items:center;gap:5px;font-size:.82rem;font-weight:700;color:var(--lime)}
+.chain .xfer .ic{width:15px;height:15px;transform:rotate(90deg)}
+.here{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:10px 0;font-size:.9rem;font-weight:700;color:var(--ink)}
+.here i{flex-basis:100%;height:4px;border-radius:99px;background:var(--accent);opacity:.9;max-width:100%}
+.here::after{content:"";position:absolute;left:0;right:0;bottom:10px;height:4px;border-radius:99px;background:var(--line);z-index:-1}
+.veh-dot{position:absolute;left:-39px;top:6px;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:#fff;box-shadow:0 0 0 4px var(--surface)}
+.veh-dot .ic{width:16px;height:16px}
+.pt.at .veh-dot{top:5px}
+.pt.at .n{font-weight:800}
+.pt .tag{margin-left:8px}
+.timeline{isolation:isolate}
