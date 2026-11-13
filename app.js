@@ -60,6 +60,20 @@ const isRail = m => /RAIL|TRAIN|LONG_DISTANCE/.test(m || '');
 const MODE_IC = { WALK: 'walk', BUS: 'bus', COACH: 'bus', TRAM: 'tram', SUBWAY: 'metro', METRO: 'metro', FERRY: 'ferry' };
 const modeIcon = m => svg(MODE_IC[m] || (isRail(m) ? 'train' : 'bus'));
 const KIND = { BUS: 'Bus', COACH: 'Bus', TRAM: 'Tram', SUBWAY: 'Metro', METRO: 'Metro', FERRY: 'Veer' };
+// "Leiden, Station Leiden Centraal (Uitstaphalte)" -> "Leiden Centraal"
+function nice(name) {
+  let s = String(name || '').replace(/\s*\((uitstaphalte|instaphalte|uitstap|instap)\)/i, '');
+  const m = s.match(/^([^,]+),\s*(.+)$/);
+  if (m && m[2].toLowerCase().includes(m[1].toLowerCase())) s = m[2];
+  return s.replace(/^Station\s+/i, '').trim();
+}
+// "bus 2", "tram 3", "trein (Sprinter)": zegt meteen wat voor voertuig het is
+function rideName(l, cap) {
+  const n = l.displayName || l.routeShortName || '', k = KIND[l.mode];
+  const s = k ? `${k.toLowerCase()} ${n}`.trim() : `trein${n ? ` (${n})` : ''}`;
+  return cap ? s[0].toUpperCase() + s.slice(1) : s;
+}
+const theRide = l => (KIND[l.mode] ? '' : 'de ') + rideName(l);
 function legName(l) {
   const n = l.displayName || l.routeShortName || '';
   const kind = KIND[l.mode];
@@ -457,10 +471,14 @@ function sayLines(it) {
   const L = it.legs, tr = L.filter(isTransit), out = [];
   const first = L[0], last = L[L.length - 1];
   if (!tr.length) out.push(['walk', `Loop ${dur(it.duration)} naar je bestemming`]);
-  else if (!isTransit(first) && first.duration >= 60) out.push(['walk', `Loop ${dur(first.duration)} naar halte ${esc(tr[0].from.name)}`]);
-  tr.forEach((l, i) => out.push([MODE_IC[l.mode] || (isRail(l.mode) ? 'train' : 'bus'),
-    `${i ? 'Stap over op' : 'Neem'} <strong>${esc(legName(l))}</strong> richting ${esc(l.headsign || l.to.name)} om ${hhmm(l.startTime)}${l.from.track ? `, perron ${esc(l.from.track)}` : ''}`]));
-  if (tr.length) out.push(['pin', `Stap uit bij ${esc(tr[tr.length - 1].to.name)}${!isTransit(last) && last !== first && last.duration >= 120 ? ` en loop ${dur(last.duration)} naar je bestemming` : ''}`]);
+  else if (!isTransit(first) && first.duration >= 60) out.push(['walk', `Loop ${dur(first.duration)} naar halte ${esc(nice(tr[0].from.name))}`]);
+  tr.forEach((l, i) => {
+    const ic = MODE_IC[l.mode] || (isRail(l.mode) ? 'train' : 'bus'), plat = l.from.track ? `, perron ${esc(l.from.track)}` : '';
+    out.push([ic, i
+      ? `Op ${esc(nice(l.from.name))} overstappen op <strong>${esc(theRide(l))}</strong> richting ${esc(nice(l.headsign || l.to.name))} · ${hhmm(l.startTime)}${plat}`
+      : `<strong>${esc(rideName(l, true))}</strong> richting ${esc(nice(l.headsign || l.to.name))} · ${hhmm(l.startTime)}${plat}`]);
+  });
+  if (tr.length) out.push(['pin', `Uitstappen op ${esc(nice(tr[tr.length - 1].to.name))}${!isTransit(last) && last !== first && last.duration >= 120 ? `, daarna ${dur(last.duration)} lopen` : ''}`]);
   return out.map(([ic, t]) => `<li>${svg(ic)}<span>${t}</span></li>`).join('');
 }
 function renderPlan() {
@@ -478,7 +496,9 @@ function renderPlan() {
   $('#plan-form').classList.toggle('simple', !state.showFrom && (!state.from || state.from.label === 'Mijn locatie'));
   if (state.pickFor) setMsg(`Typ hierboven het adres van ${state.pickFor === 'home' ? 'thuis' : 'je werk'}.`);
   else if (!state.to) setMsg('Typ hierboven je bestemming. Je ziet meteen welke bus of trein je moet nemen.');
-  else if (!state.from) setMsg(state.gpsDenied || state.showFrom ? 'Typ hierboven waar je vertrekt.' : '<span class="spinner"></span>Je locatie bepalen…');
+  else if (state.locating) setMsg('<span class="spinner"></span>Je locatie bepalen…');
+  else if (!state.from && state.gpsDenied) setMsg(`${state.gpsError === 1 ? 'Locatie staat uit voor Omreis. Zet hem aan bij de instellingen van deze site in je browser.' : 'Je locatie is nu niet te bepalen.'} Je kunt ook hierboven typen waar je vertrekt. <button class="btn-text" data-action="retryloc">Probeer opnieuw</button>`, true);
+  else if (!state.from) setMsg('Typ hierboven waar je vertrekt.');
   $('#view-plan').insertBefore($('.whenbox'), $('#plan-msg'));
   if (!has) { $('#results').innerHTML = ''; return; }
   const it = state.results[state.sel], n = state.results.length - 1;
@@ -740,7 +760,7 @@ function buildSteps(L, nm) {
       const where = nextT && nextT.from.track ? `perron ${esc(nextT.from.track)}` : nm(leg.to);
       steps.push({
         kind: 'walk', icon: 'walk', start: leg.startTime, end: leg.endTime, time: leg.startTime,
-        title: prevT && nextT ? `Overstappen: loop naar ${where}` : `Loop naar ${nm(leg.to)}`,
+        title: prevT && nextT ? `Loop naar ${where} voor ${esc(theRide(nextT))}` : `Loop naar ${nm(leg.to)}`,
         sub: `${dur(leg.duration)} lopen${leg.distance ? ` · ${Math.round(leg.distance / 10) * 10} m` : ''}`
       });
       lastEnd = leg.endTime;
@@ -750,14 +770,14 @@ function buildSteps(L, nm) {
     const gapTxt = gap == null ? '' : gap < 0 ? '<span class="tag bad">overstap niet haalbaar</span>' : `<span class="tag ${gap < 3 ? 'warn' : ''}">${gap} min overstaptijd</span>`;
     steps.push({
       kind: 'in', icon: MODE_IC[leg.mode] || (isRail(leg.mode) ? 'train' : 'bus'), start: lastEnd, end: leg.startTime, time: leg.startTime, sched: leg.scheduledStartTime, cancelled: leg.cancelled,
-      title: `Stap in: ${esc(legName(leg))} richting ${esc(leg.headsign || leg.to.name)}`,
-      sub: `${nm(leg.from)}${leg.from.track ? ` · <strong>perron ${esc(leg.from.track)}</strong>` : ''}${gapTxt}`, chip: chip(leg)
+      title: `${prevT ? `Overstappen op ${esc(theRide(leg))}` : esc(rideName(leg, true))} richting ${esc(nice(leg.headsign || leg.to.name))}`,
+      sub: `Vanaf ${nm(leg.from)}${leg.from.track ? ` · <strong>perron ${esc(leg.from.track)}</strong>` : ''}${gapTxt}`, chip: chip(leg)
     });
     const mid = leg.intermediateStops || [];
     steps.push({
       kind: 'out', icon: 'pin', start: leg.startTime, end: leg.endTime, time: leg.endTime, sched: leg.scheduledEndTime, cancelled: leg.cancelled, mid,
-      title: `Stap uit bij ${nm(leg.to)}`,
-      sub: `${mid.length ? `na ${mid.length} ${mid.length === 1 ? 'tussenhalte' : 'tussenhaltes'}` : 'dit is de eerstvolgende halte'}${leg.to.track ? ` · perron ${esc(leg.to.track)}` : ''}${nextT ? ` · daarna overstappen op ${esc(legName(nextT))}` : ''}`
+      title: `Uitstappen op ${nm(leg.to)}`,
+      sub: `${mid.length ? `na ${mid.length} ${mid.length === 1 ? 'tussenhalte' : 'tussenhaltes'}` : 'dit is de eerstvolgende halte'}${leg.to.track ? ` · perron ${esc(leg.to.track)}` : ''}${nextT ? ` · daarna verder met ${esc(theRide(nextT))}` : ''}`
     });
     lastEnd = leg.endTime;
   });
@@ -767,16 +787,16 @@ function nowCard(L, now) {
   const i = L.findIndex(l => ms(l.endTime) > now);
   if (i < 0) return { k: 'Aangekomen', v: 'Je bent op je bestemming', s: `Aankomst ${hhmm(L[L.length - 1].endTime)}` };
   const leg = L[i], wait = mins(ms(leg.startTime) - now);
-  const toName = esc(leg.to.name === 'END' ? 'je bestemming' : leg.to.name);
+  const toName = esc(leg.to.name === 'END' ? 'je bestemming' : nice(leg.to.name));
   if (ms(leg.startTime) > now) {
     if (!isTransit(leg)) return { k: 'Zo meteen', v: wait > 0 ? `Vertrek over ${wait} min` : 'Vertrek nu', s: `Loop ${dur(leg.duration)} naar ${toName}` };
     let extra = '';
     if (state.gps && leg.from.lat) { const d = distM(state.gps, leg.from); if (d > 80) extra = ` · nog ${d < 1000 ? Math.round(d / 10) * 10 + ' m' : (d / 1000).toFixed(1) + ' km'} naar de halte, ongeveer ${Math.max(1, Math.ceil(d / 75))} min lopen`; }
-    return { k: wait <= 0 ? 'Nu instappen' : `Instappen over ${wait} min`, v: `${esc(legName(leg))} richting ${esc(leg.headsign || leg.to.name)}`, s: `${hhmm(leg.startTime)} vanaf ${esc(leg.from.name)}${platform(leg.from)}${extra}` };
+    return { k: wait <= 0 ? 'Nu instappen' : `Instappen over ${wait} min`, v: `${esc(rideName(leg, true))} richting ${esc(nice(leg.headsign || leg.to.name))}`, s: `${hhmm(leg.startTime)} vanaf ${esc(nice(leg.from.name))}${platform(leg.from)}${extra}` };
   }
   if (!isTransit(leg)) return { k: 'Nu', v: `Loop naar ${toName}`, s: `Nog ongeveer ${Math.max(1, mins(ms(leg.endTime) - now))} min${platform(leg.to)}` };
   const left = (leg.intermediateStops || []).filter(s => ms(s.arrival || s.departure) > now).length;
-  return { k: `Onderweg met ${esc(legName(leg))}`, v: `Uitstappen bij ${esc(leg.to.name)}`, s: `${hhmm(leg.endTime)}, over ${Math.max(0, mins(ms(leg.endTime) - now))} min${left ? ` · nog ${left} ${left === 1 ? 'halte' : 'haltes'} ertussen` : ' · dit is de volgende halte'}${platform(leg.to)}` };
+  return { k: `Onderweg met ${esc(theRide(leg))}`, v: `Uitstappen op ${esc(nice(leg.to.name))}`, s: `${hhmm(leg.endTime)}, over ${Math.max(0, mins(ms(leg.endTime) - now))} min${left ? ` · nog ${left} ${left === 1 ? 'halte' : 'haltes'} ertussen` : ' · dit is de volgende halte'}${platform(leg.to)}` };
 }
 
 function renderTrack() {
@@ -788,7 +808,7 @@ function renderTrack() {
   const pct = Math.max(0, Math.min(100, (now - start) / (end - start) * 100));
   const late = mins(end - ms(trip.origEnd));
   const [fromLabel, toLabel] = trip.label.split(' → ');
-  const nm = p => esc(p.name === 'START' ? (fromLabel || 'Vertrekpunt') : p.name === 'END' ? (toLabel || 'Bestemming') : p.name);
+  const nm = p => esc(p.name === 'START' ? (fromLabel || 'Vertrekpunt') : p.name === 'END' ? (toLabel || 'Bestemming') : nice(p.name));
   const steps = buildSteps(L, nm);
   const curStep = steps.findIndex(s => ms(s.end) > now);
   const stateTxt = { ok: trip.started ? 'Op schema' : 'Rijdt volgens plan', warn: 'Let op', bad: 'Verstoord' }[sev];
@@ -927,7 +947,7 @@ function renderRide() {
 function nearby() {
   if (!navigator.geolocation) return;
   state.near = { loading: true }; renderBoard();
-  navigator.geolocation.getCurrentPosition(async p => {
+  getPos(async p => {
     const me = { lat: p.coords.latitude, lon: p.coords.longitude };
     state.gps = { ...me, at: Date.now() }; drawMe();
     try {
@@ -935,7 +955,7 @@ function nearby() {
       state.near = { list: groupStops(d).map(g => ({ id: g.ids.join('|'), ids: g.ids, label: g.name, dist: distM(me, g) })).sort((x, y) => x.dist - y.dist).slice(0, 8) };
     } catch { state.near = { error: 'Haltes ophalen lukte niet.' }; }
     renderBoard();
-  }, () => { state.near = { error: 'Locatie ophalen lukte niet.' }; renderBoard(); }, { enableHighAccuracy: true, timeout: 15000 });
+  }, e => { state.near = { error: e && e.code === 1 ? 'Locatie staat uit voor Omreis; zet hem aan in je browserinstellingen.' : 'Je locatie is nu niet te bepalen.' }; renderBoard(); });
 }
 
 /* ---------- vertrektijden ---------- */
@@ -986,17 +1006,25 @@ function watchGps() {
     p => { state.gps = { lat: p.coords.latitude, lon: p.coords.longitude, at: Date.now() }; drawMe(); },
     () => {}, { enableHighAccuracy: true, maximumAge: 20000, timeout: 20000 });
 }
+/* Eerst snel en grof (werkt ook binnen), daarna pas nauwkeurig; geweigerde toestemming meteen doorgeven. */
+function getPos(ok, fail) {
+  if (!navigator.geolocation) return fail({ code: 0 });
+  navigator.geolocation.getCurrentPosition(ok, e => {
+    if (e && e.code === 1) return fail(e);
+    navigator.geolocation.getCurrentPosition(ok, fail, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 });
+}
 function useMyLocation(quiet) {
   if (!navigator.geolocation) { if (!quiet) setMsg('Je browser geeft geen locatie door.', true); return; }
   if (!quiet) { $('#from').value = 'Locatie bepalen…'; state.locating = true; }
-  navigator.geolocation.getCurrentPosition(p => {
-    state.gps = { lat: p.coords.latitude, lon: p.coords.longitude, at: Date.now() }; state.locating = false;
+  if (!quiet) renderPlan();
+  getPos(p => {
+    state.gps = { lat: p.coords.latitude, lon: p.coords.longitude, at: Date.now() }; state.locating = false; state.gpsDenied = false;
     if (quiet && (state.from || $('#from').value || state.trip)) { drawMe(); if (mapReady && !state.trip) map.easeTo({ center: [state.gps.lon, state.gps.lat], zoom: 14 }); return; }
     state.from = { label: 'Mijn locatie', place: `${state.gps.lat},${state.gps.lon}`, lat: state.gps.lat, lon: state.gps.lon };
     $('#from').value = 'Mijn locatie';
     drawMe(); watchGps(); endpointsChanged();
-  }, () => { state.locating = false; if (!quiet) { $('#from').value = ''; state.gpsDenied = true; state.showFrom = true; renderPlan(); } },
-    { enableHighAccuracy: true, timeout: 15000 });
+  }, e => { state.locating = false; if (!quiet) { $('#from').value = ''; state.gpsDenied = true; state.gpsError = e ? e.code : 0; state.showFrom = true; renderPlan(); } });
 }
 
 /* ---------- paneel ---------- */
@@ -1056,6 +1084,7 @@ document.addEventListener('click', e => {
       break;
     case 'page': searchPlan({ cursor: state.cursors[a.dataset.dir] }); break;
     case 'begin': beginTrip(); break;
+    case 'retryloc': state.gpsDenied = false; state.showFrom = false; useMyLocation(false); break;
     case 'showfrom': state.showFrom = true; renderPlan(); $('#from').focus(); break;
     case 'saveline': {
       const l = lineOf(state.ride.leg), k = state.lines.findIndex(x => lineKey(x) === lineKey(l));

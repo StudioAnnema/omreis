@@ -1,5 +1,5 @@
 // Omreis service worker: app-schil offline beschikbaar, live data altijd van het netwerk.
-const CACHE = 'omreis-v24';
+const CACHE = 'omreis-v25';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'mapstyles.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
