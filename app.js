@@ -150,6 +150,10 @@ function initMap() {
       if (v) return openRide(v.properties.tripId);
       const st = map.queryRenderedFeatures(box, { layers: ['stops'] })[0];
       if (st) { state.stopsOpen = true; setSheet('half'); loadBoard({ id: st.properties.ids, ids: st.properties.ids.split('|'), label: st.properties.name }); return render(); }
+      if (!state.from && !state.trip && !state.stopsOpen && state.gpsDenied && e.lngLat) {   // zonder gps: wijs zelf aan waar je bent
+        state.from = { label: 'Gekozen punt', place: `${e.lngLat.lat},${e.lngLat.lng}`, lat: e.lngLat.lat, lon: e.lngLat.lng };
+        $('#from').value = 'Gekozen punt'; focusMap(false); return endpointsChanged();
+      }
       focusMap(false);   // tik op de kaart: alles komt terug
     });
     ['veh-c', 'stops'].forEach(l => { map.on('mouseenter', l, () => { map.getCanvas().style.cursor = 'pointer'; }); map.on('mouseleave', l, () => { map.getCanvas().style.cursor = ''; }); });
@@ -497,7 +501,7 @@ function renderPlan() {
   if (state.pickFor) setMsg(`Typ hierboven het adres van ${state.pickFor === 'home' ? 'thuis' : 'je werk'}.`);
   else if (!state.to) setMsg('Typ hierboven je bestemming. Je ziet meteen welke bus of trein je moet nemen.');
   else if (state.locating) setMsg('<span class="spinner"></span>Je locatie bepalen…');
-  else if (!state.from && state.gpsDenied) setMsg(`${state.gpsError === 1 ? 'Locatie staat uit voor Omreis. Zet hem aan bij de instellingen van deze site in je browser.' : 'Je locatie is nu niet te bepalen.'} Je kunt ook hierboven typen waar je vertrekt. <button class="btn-text" data-action="retryloc">Probeer opnieuw</button>`, true);
+  else if (!state.from && state.gpsDenied) setMsg(`${{ 1: 'Locatie staat uit voor Omreis. Zet hem aan bij de instellingen van deze site in je browser.', 2: 'Je toestel geeft geen locatie door. Staat Locatie aan in de instellingen van je telefoon of computer?', 3: 'Je locatie vinden duurt te lang. Ga bij een raam staan of naar buiten.' }[state.gpsError] || 'Deze browser kan je locatie niet doorgeven.'} Je kunt ook op de kaart tikken waar je bent, of hierboven typen waar je vertrekt. <button class="btn-text" data-action="retryloc">Probeer opnieuw</button>`, true);
   else if (!state.from) setMsg('Typ hierboven waar je vertrekt.');
   $('#view-plan').insertBefore($('.whenbox'), $('#plan-msg'));
   if (!has) { $('#results').innerHTML = ''; return; }
