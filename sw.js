@@ -1,5 +1,5 @@
 // Omreis service worker: app-schil offline beschikbaar, live data altijd van het netwerk.
-const CACHE = 'omreis-v29';
+const CACHE = 'omreis-v30';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'mapstyles.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -13,7 +13,7 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || url.origin !== location.origin) return; // API-verzoeken niet cachen
   // netwerk eerst (zodat updates direct zichtbaar zijn), cache als terugval
   e.respondWith(
-    fetch(e.request).then(r => {
+    fetch(e.request.url, { cache: 'no-cache' }).then(r => {   // altijd de nieuwste versie ophalen
       const copy = r.clone();
       caches.open(CACHE).then(c => c.put(e.request, copy));
       return r;

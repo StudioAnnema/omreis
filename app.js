@@ -2,6 +2,7 @@
 'use strict';
 const API = 'https://api.transitous.org/api';
 const REFRESH_MS = 30000;
+const VERSION = 30;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const store = {
@@ -202,6 +203,10 @@ function drawMap() {
   map.getSource('pts').setData(fc(dots));
   if (!all.length) return;
   if (all.length === 1) return map.flyTo({ center: all[0], zoom: 15, pitch: mapPitch });
+  if (ride) {
+    const p = ridePosition(ride, Date.now());
+    if (p) return map.easeTo({ center: p, zoom: 15, pitch: 0, bearing: 0, offset: [0, -Math.min($('#sheet').offsetHeight, innerHeight * 0.55) / 2 + 20], duration: 900 });
+  }
   if (state.trip?.started && !state.ride) return liveCamera();
   const b = all.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(all[0], all[0]));
   const sheetH = Math.min($('#sheet').offsetHeight, innerHeight * 0.55);
@@ -463,7 +468,7 @@ function shortcutsHtml() {
     </div>`).join('');
   const any = state.saved.length || P.home || P.work;
   $('#quick').innerHTML = chips;
-  return `${rows ? `<h2>Opgeslagen reizen</h2>${rows}` : ''}${linesHtml(ed)}${any || state.lines.length ? `<button class="btn-text" data-action="edit">${ed ? 'Klaar' : 'Aanpassen'}</button>` : ''}`;
+  return `${rows ? `<h2>Opgeslagen reizen</h2>${rows}` : ''}${linesHtml(ed)}${any || state.lines.length ? `<button class="btn-text" data-action="edit">${ed ? 'Klaar' : 'Aanpassen'}</button>` : ''}<div class="ver">versie ${VERSION}</div>`;
 }
 function setEndpoints(from, to) {
   state.to = to; $('#to').value = to?.label || '';
@@ -849,13 +854,12 @@ function renderTrack() {
   }
   const stepsHtml = steps.map((s, k) => {
     const done = trip.started && ms(s.end) <= now, active = trip.started && k === curStep;
-    const where = s.tripId && s.kind === 'in' && !done ? whereIs(s.leg, now) : '';
-    const stops = s.tripId && s.kind === 'in' ? `<div class="where">${where ? `${where} · ` : ''}<u>bekijk de hele rit</u></div>` : '';
-    return `<li class="step ${s.kind} ${done ? 'done' : ''} ${active ? 'active' : ''} ${s.cancelled ? 'cancel' : ''}"${s.tripId ? ` data-action="ride" data-trip="${esc(s.tripId)}"` : ''}>
+    const stops = '';
+    return `<li class="step ${s.kind} ${done ? 'done' : ''} ${active ? 'active' : ''} ${s.cancelled ? 'cancel' : ''}">
       <span class="num">${done ? svg('check') : k + 1}</span>
       <div class="body">
         <div class="ttl">${s.title}${s.cancelled && s.kind === 'in' ? '<span class="pill">rijdt niet</span>' : ''}</div>
-        <div class="sub">${s.chip || ''}${s.sub}</div>${stops}
+        <div class="sub">${s.chip ? `<button class="chipbtn" data-action="ride" data-trip="${esc(s.tripId)}" aria-label="Bekijk waar deze rit nu is">${s.chip}</button>` : ''}${s.sub}</div>${stops}
       </div>
       <span class="when num-t ${s.cancelled ? 'strike' : ''}">${hhmm(s.time)}${s.sched ? delayHtml(s.time, s.sched) : ''}</span>
     </li>`;
@@ -951,7 +955,7 @@ function renderRide() {
     : `Rijdt nu tussen <strong>${esc(nice(st[cur - 1].name))}</strong> en <strong>${esc(nice(st[cur].name))}</strong>`;
   const vcolor = hex(leg.routeColor) || (isRail(leg.mode) ? '#2B1A66' : '#5B2EFF');
   const vdot = `<span class="veh-dot" style="background:${vcolor}">${svg(MODE_IC[leg.mode] || (isRail(leg.mode) ? 'train' : 'bus'))}</span>`;
-  const rows = st.map((x, i) => {
+  const rowList = st.map((x, i) => {
     const t = (i === 0 ? x.departure : x.arrival) || x.departure || x.arrival, sch = (i === 0 ? x.scheduledDeparture : x.scheduledArrival) || x.scheduledDeparture;
     const here = i === cur && !leg.cancelled;
     let pre = '';
@@ -961,7 +965,9 @@ function renderRide() {
     }
     const tag = here && atStop ? `${vdot}<span class="tag">staat nu hier</span>` : here && cur === 0 ? '<span class="tag">vertrekt hier</span>' : '';
     return `${pre}<div class="pt ${ms(x.departure || x.arrival) <= now ? 'passed' : ''} ${here && atStop ? 'at' : ''}"><span class="t ${x.cancelled ? 'strike' : ''}">${hhmm(t)}${sch ? delayHtml(t, sch) : ''}</span><span class="n">${esc(nice(x.name))}${tag}</span>${x.track ? `<span class="trk">perron ${esc(x.track)}</span>` : ''}</div>`;
-  }).join('');
+  });
+  const hideN = cur < 0 ? 0 : Math.max(0, cur - 1);   // alles vóór de laatst gepasseerde halte
+  const rows = (hideN > 1 ? `<details class="earlier"${r.earlierOpen ? ' open' : ''}><summary>${hideN} eerdere haltes</summary>${rowList.slice(0, hideN).join('')}</details>` : rowList.slice(0, hideN).join('')) + rowList.slice(hideN).join('');
   const savedLine = state.lines.some(l => lineKey(l) === lineKey(lineOf(leg)));
   el.innerHTML = `<div class="hero-trip">${nav(leg.agencyName || 'Rit')}<button class="icon-btn star save-line ${savedLine ? 'on' : ''}" data-action="saveline" aria-label="${savedLine ? 'Lijn verwijderen uit opgeslagen' : 'Lijn opslaan'}" title="Lijn opslaan">${svg('star')}</button>
       <h1>${esc(rideName(leg, true))} naar ${esc(nice(leg.headsign || leg.to.name))}</h1>
@@ -1230,7 +1236,11 @@ $('#when-mode').addEventListener('change', () => searchPlan());
 $('#when-now').addEventListener('click', () => { $('#when').value = ''; searchPlan(); });
 addEventListener('online', () => { render(); refreshTrip(); });
 addEventListener('offline', render);
-document.addEventListener('toggle', e => { if (e.target.classList && e.target.classList.contains('others')) state.othersOpen = e.target.open; }, true);
+document.addEventListener('toggle', e => {
+  if (!e.target.classList) return;
+  if (e.target.classList.contains('others')) state.othersOpen = e.target.open;
+  if (e.target.classList.contains('earlier') && state.ride) state.ride.earlierOpen = e.target.open;
+}, true);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(true); });
 
 let lastRefresh = 0;

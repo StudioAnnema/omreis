@@ -433,3 +433,9 @@ body.map-focus .sheet{transform:translateY(calc(100% - 46px))}
 .step .where{margin-top:6px;font-size:.86rem;font-weight:600;color:var(--accent)}
 .step .where u{text-underline-offset:3px}
 .chipbtn{background:none;border:0;padding:0;display:inline-flex}
+.earlier summary{list-style:none;cursor:pointer;padding:9px 0;font-size:.86rem;font-weight:700;color:var(--accent)}
+.earlier summary::-webkit-details-marker{display:none}
+.earlier summary::after{content:" ▾"}
+.earlier[open] summary::after{content:" ▴"}
+.ver{margin-top:14px;font-size:.72rem;color:var(--muted);opacity:.7}
+.step .chipbtn .chip{box-shadow:0 0 0 2px var(--accent-soft)}
