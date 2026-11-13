@@ -423,3 +423,13 @@ body.map-focus #searchwrap{transform:translateY(-320px)}
 .pt.at .n{font-weight:800}
 .pt .tag{margin-left:8px}
 .timeline{isolation:isolate}
+
+/* ---------- paneelgedrag, ververs-knop, tikbare stappen ---------- */
+.handle{padding:14px 0 12px;cursor:pointer}
+.handle i{width:46px;height:5px}
+body.map-focus .sheet{transform:translateY(calc(100% - 46px))}
+.map-btn.spin .ic{animation:sp .8s linear}
+.step[data-action]{cursor:pointer}
+.step .where{margin-top:6px;font-size:.86rem;font-weight:600;color:var(--accent)}
+.step .where u{text-underline-offset:3px}
+.chipbtn{background:none;border:0;padding:0;display:inline-flex}

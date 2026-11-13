@@ -155,7 +155,7 @@ function initMap() {
         state.from = { label: 'Gekozen punt', place: `${e.lngLat.lat},${e.lngLat.lng}`, lat: e.lngLat.lat, lon: e.lngLat.lng };
         $('#from').value = 'Gekozen punt'; focusMap(false); return endpointsChanged();
       }
-      focusMap(false);   // tik op de kaart: alles komt terug
+      focusMap(!document.body.classList.contains('map-focus'));   // tik op de kaart: paneel omlaag, nog een tik: weer omhoog
     });
     ['veh-c', 'stops'].forEach(l => { map.on('mouseenter', l, () => { map.getCanvas().style.cursor = 'pointer'; }); map.on('mouseleave', l, () => { map.getCanvas().style.cursor = ''; }); });
     let t; map.on('moveend', () => { clearTimeout(t); t = setTimeout(() => { fetchVehicles(); fetchStops(); }, 350); });
@@ -492,7 +492,7 @@ function renderPlan() {
   $('#shortcuts').innerHTML = shortcutsHtml();
   const sb = $('#save-trip'); sb.hidden = !has; sb.classList.toggle('on', savedIndex() >= 0);
   const live = has && !$('#when').value && !state.paged;
-  $('#plan-refresh').hidden = !has;
+  $('#plan-refresh').hidden = true;
   const w = $('#when').value, arr = $('#when-mode').value === 'arr';
   $('#when-now').hidden = !w;
   $('#when-label').textContent = w ? `${arr ? 'Aankomst' : 'Vertrek'} ${new Date(w).toLocaleString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : (arr ? 'Aankomst: kies tijd' : 'Nu vertrekken');
@@ -606,7 +606,7 @@ async function refreshTrip() {
       leg.to = { ...leg.to, ...stops[b] };
       leg.intermediateStops = stops.slice(a + 1, b);
       leg.fullFrom = a;
-      leg.full = stops.map(x => ({ lat: x.lat, lon: x.lon, arrival: x.arrival, departure: x.departure }));   // hele rit, om het voertuig ook vóór jouw halte te volgen
+      leg.full = stops.map(x => ({ name: x.name, lat: x.lat, lon: x.lon, arrival: x.arrival, departure: x.departure }));   // hele rit, om het voertuig ook vóór jouw halte te volgen
       leg.startTime = stops[a].departure || leg.startTime;
       leg.endTime = stops[b].arrival || leg.endTime;
       leg.realTime = tl.realTime;
@@ -774,19 +774,28 @@ function buildSteps(L, nm) {
     const gap = prevT ? mins(ms(leg.startTime) - ms(prevT.endTime)) : null;
     const gapTxt = gap == null ? '' : gap < 0 ? '<span class="tag bad">overstap niet haalbaar</span>' : `<span class="tag ${gap < 3 ? 'warn' : ''}">${gap} min overstaptijd</span>`;
     steps.push({
-      kind: 'in', icon: MODE_IC[leg.mode] || (isRail(leg.mode) ? 'train' : 'bus'), start: lastEnd, end: leg.startTime, time: leg.startTime, sched: leg.scheduledStartTime, cancelled: leg.cancelled,
+      kind: 'in', tripId: leg.tripId, leg, icon: MODE_IC[leg.mode] || (isRail(leg.mode) ? 'train' : 'bus'), start: lastEnd, end: leg.startTime, time: leg.startTime, sched: leg.scheduledStartTime, cancelled: leg.cancelled,
       title: `${prevT ? `Overstappen op ${esc(theRide(leg))}` : esc(rideName(leg, true))} richting ${esc(nice(leg.headsign || leg.to.name))}`,
       sub: `Vanaf ${nm(leg.from)}${leg.from.track ? ` · <strong>perron ${esc(leg.from.track)}</strong>` : ''}${gapTxt}`, chip: chip(leg)
     });
     const mid = leg.intermediateStops || [];
     steps.push({
-      kind: 'out', icon: 'pin', start: leg.startTime, end: leg.endTime, time: leg.endTime, sched: leg.scheduledEndTime, cancelled: leg.cancelled, mid,
+      kind: 'out', tripId: leg.tripId, leg, icon: 'pin', start: leg.startTime, end: leg.endTime, time: leg.endTime, sched: leg.scheduledEndTime, cancelled: leg.cancelled, mid,
       title: `Uitstappen op ${nm(leg.to)}`,
       sub: `${mid.length ? `na ${mid.length} ${mid.length === 1 ? 'tussenhalte' : 'tussenhaltes'}` : 'dit is de eerstvolgende halte'}${leg.to.track ? ` · perron ${esc(leg.to.track)}` : ''}${nextT ? ` · daarna verder met ${esc(theRide(nextT))}` : ''}`
     });
     lastEnd = leg.endTime;
   });
   return steps;
+}
+/* In woorden waar een voertuig nu is, op basis van de hele rit. */
+function whereIs(leg, now) {
+  const st = leg.full; if (!st || !st.length || leg.cancelled) return '';
+  const cur = st.findIndex(x => ms(x.departure || x.arrival) > now);
+  if (cur < 0) return '';
+  if (cur === 0) return `Vertrekt om ${hhmm(st[0].departure || st[0].arrival)} vanaf ${esc(nice(st[0].name))}`;
+  if (st[cur].arrival && ms(st[cur].arrival) <= now) return `Staat nu bij ${esc(nice(st[cur].name))}`;
+  return `Rijdt nu tussen ${esc(nice(st[cur - 1].name))} en ${esc(nice(st[cur].name))}`;
 }
 function nowCard(L, now) {
   const i = L.findIndex(l => ms(l.endTime) > now);
@@ -840,8 +849,9 @@ function renderTrack() {
   }
   const stepsHtml = steps.map((s, k) => {
     const done = trip.started && ms(s.end) <= now, active = trip.started && k === curStep;
-    const stops = s.mid && s.mid.length ? `<details class="ride"><summary><span class="tog">Tussenhaltes bekijken</span></summary>${s.mid.map(x => `<div class="mid ${ms(x.departure || x.arrival) <= now ? 'passed' : ''}"><span>${hhmm(x.arrival || x.departure)}</span>${esc(x.name)}</div>`).join('')}</details>` : '';
-    return `<li class="step ${s.kind} ${done ? 'done' : ''} ${active ? 'active' : ''} ${s.cancelled ? 'cancel' : ''}">
+    const where = s.tripId && s.kind === 'in' && !done ? whereIs(s.leg, now) : '';
+    const stops = s.tripId && s.kind === 'in' ? `<div class="where">${where ? `${where} · ` : ''}<u>bekijk de hele rit</u></div>` : '';
+    return `<li class="step ${s.kind} ${done ? 'done' : ''} ${active ? 'active' : ''} ${s.cancelled ? 'cancel' : ''}"${s.tripId ? ` data-action="ride" data-trip="${esc(s.tripId)}"` : ''}>
       <span class="num">${done ? svg('check') : k + 1}</span>
       <div class="body">
         <div class="ttl">${s.title}${s.cancelled && s.kind === 'in' ? '<span class="pill">rijdt niet</span>' : ''}</div>
@@ -861,16 +871,17 @@ function renderTrack() {
       const passed = nt.full.filter(x => ms(x.departure || x.arrival) <= now).length, n = nt.fullFrom - passed + 1;
       if (passed > 0 && n > 0) away = n === 1 ? 'Je halte is de volgende stop' : `Nog ${n} haltes van je vandaan`;
     }
+    const wh = nt && st && st.kind === 'in' ? whereIs(nt, now) : '';
     const label = !st ? 'Aangekomen' : st.kind === 'in' ? (eta <= 1 ? 'Nu instappen' : away ? 'Komt eraan' : 'Je volgende rit') : st.kind === 'out' ? 'Onderweg' : 'Lopen';
     const nx = curStep >= 0 ? steps[curStep + 1] : null;
     const rides = L.filter(isTransit);
-    const chain = rides.length < 2 ? '' : `<div class="chain">${rides.map((l, i) => chip(l) + (i < rides.length - 1 ? `<span class="xfer">${svg('swap')}Overstap ${esc(nice(l.to.name))} · ${Math.max(0, mins(ms(rides[i + 1].startTime) - ms(l.endTime)))} min</span>` : '')).join('')}</div>`;
+    const chain = rides.length < 2 ? '' : `<div class="chain">${rides.map((l, i) => `<button class="chipbtn" data-action="ride" data-trip="${esc(l.tripId)}">${chip(l)}</button>` + (i < rides.length - 1 ? `<span class="xfer">${svg('swap')}Overstap ${esc(nice(l.to.name))} · ${Math.max(0, mins(ms(rides[i + 1].startTime) - ms(l.endTime)))} min</span>` : '')).join('')}</div>`;
     const track = L.map(l => `<i class="${isTransit(l) ? '' : 'w'}" style="flex:${Math.max(1, ms(l.endTime) - ms(l.startTime))}${isTransit(l) && hex(l.routeColor) ? `;background:${hex(l.routeColor)}` : ''}"></i>`).join('');
     header = `<div class="livecard">
       <div class="trip-nav"><button class="icon-btn" data-action="stop" aria-label="Reis stoppen">${svg('back')}</button><span class="eyebrow">Naar ${esc(toLabel || destOf(trip.itin).name)}</span><span class="state ${sev}"><i></i>${stateTxt}</span></div>
       <div class="live-main">
         <div class="eta">${st ? `<b class="num">${eta}</b><span>min</span>` : svg('check')}</div>
-        <div class="live-txt"><div class="k">${label}</div><div class="v">${nc.v}</div><div class="s">${away ? `${away} · ` : ''}${nc.s}</div></div>
+        <div class="live-txt"><div class="k">${label}</div><div class="v">${nc.v}</div><div class="s">${wh ? `${wh} · ` : ''}${away ? `${away} · ` : ''}${nc.s}</div></div>
       </div>
       <div class="track">${track}<em style="left:${pct.toFixed(1)}%"></em></div>
       ${chain}
@@ -890,7 +901,6 @@ function renderTrack() {
     <div class="updated">Bijgewerkt om ${hhmm(trip.updated)}${navigator.onLine ? '' : ' · offline'}</div>
     <div class="actions">
       <button class="btn" data-action="manual">Zelf reis kiezen</button>
-      <button class="btn" data-action="refresh">${svg('refresh')}Ververs</button>
     </div>
     <details class="more"><summary>Meer</summary><div>
       <button class="btn-text" data-action="sim">${trip.sim != null ? 'Teststoring uitzetten' : 'Teststoring simuleren'}</button>
@@ -959,8 +969,7 @@ function renderRide() {
     </div>
     ${alertsHtml(leg.alerts)}
     <div class="timeline"><div class="leg" style="--c:${hex(leg.routeColor) || 'var(--accent)'}">${rows}</div></div>
-    <div class="updated">Bijgewerkt om ${hhmm(r.updated)}</div>
-    <div class="actions"><button class="btn" data-action="refreshride">${svg('refresh')}Ververs</button></div>`;
+    <div class="updated">Bijgewerkt om ${hhmm(r.updated)}</div>`;
 }
 
 /* ---------- haltes in de buurt ---------- */
@@ -1014,7 +1023,7 @@ function renderBoard() {
       ${p.track ? `<span class="trk">perron ${esc(p.track)}</span>` : ''}
     </button>`;
   }).join('') + '</div>';
-  el.innerHTML = `<div class="board-head"><h3>${esc(b.stop.label)}</h3><span class="head-btns"><button class="icon-btn" data-action="refreshboard" aria-label="Ververs">${svg('refresh')}</button><button class="icon-btn star ${fav ? 'on' : ''}" data-action="fav" aria-label="${fav ? 'Verwijder favoriet' : 'Bewaar als favoriet'}">${svg('star')}</button></span></div>
+  el.innerHTML = `<div class="board-head"><h3>${esc(b.stop.label)}</h3><span class="head-btns"><button class="icon-btn star ${fav ? 'on' : ''}" data-action="fav" aria-label="${fav ? 'Verwijder favoriet' : 'Bewaar als favoriet'}">${svg('star')}</button></span></div>
     ${body}${b.updated ? `<div class="updated">Bijgewerkt om ${hhmm(b.updated)}</div>` : ''}`;
 }
 
@@ -1056,14 +1065,15 @@ function focusMap(on) { document.body.classList.toggle('map-focus', on); }
 function setSheet(size) { $('#sheet').dataset.size = size; focusMap(false); }
 (function sheetDrag() {
   const h = $('#handle'); let y0 = null;
+  const base = () => (state.trip && state.trip.started && !state.ride && !state.stopsOpen ? 'peek' : 'half');
   h.addEventListener('pointerdown', e => { y0 = e.clientY; h.setPointerCapture(e.pointerId); });
   h.addEventListener('pointerup', e => {
     if (y0 == null) return;
-    const dy = e.clientY - y0, i = SIZES.indexOf($('#sheet').dataset.size); y0 = null;
-    if (document.body.classList.contains('map-focus')) return focusMap(false);
-    if (dy < -30) setSheet(SIZES[Math.min(2, i + 1)]);
-    else if (dy > 30) setSheet(SIZES[Math.max(0, i - 1)]);
-    else setSheet(SIZES[(i + 1) % 3]);
+    const dy = e.clientY - y0, size = $('#sheet').dataset.size, down = document.body.classList.contains('map-focus'); y0 = null;
+    if (down) return setSheet(dy < -60 ? 'full' : base());            // omlaag staand: elke tik of veeg haalt hem terug
+    if (dy < -15) return setSheet('full');                             // omhoog vegen: helemaal open
+    if (dy > 15) return size === 'full' ? setSheet(base()) : focusMap(true);   // omlaag vegen: een stand lager
+    setSheet(size === 'full' ? base() : 'full');                       // tik: wissel tussen normaal en helemaal open
   });
 })();
 
@@ -1107,6 +1117,13 @@ document.addEventListener('click', e => {
       break;
     case 'page': searchPlan({ cursor: state.cursors[a.dataset.dir] }); break;
     case 'begin': beginTrip(); break;
+    case 'refreshall':
+      a.classList.add('spin'); setTimeout(() => a.classList.remove('spin'), 900);
+      if (state.ride) openRide(state.ride.tripId);
+      else if (state.stopsOpen) { if (state.board) loadBoard(state.board.stop); }
+      else if (state.trip) refreshTrip();
+      else searchPlan();
+      fetchVehicles(); break;
     case 'retryloc': state.gpsDenied = false; state.showFrom = false; useMyLocation(false); break;
     case 'showfrom': state.showFrom = true; renderPlan(); $('#from').focus(); break;
     case 'saveline': {
