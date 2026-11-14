@@ -439,3 +439,22 @@ body.map-focus .sheet{transform:translateY(calc(100% - 46px))}
 .earlier[open] summary::after{content:" ▴"}
 .ver{margin-top:14px;font-size:.72rem;color:var(--muted);opacity:.7}
 .step .chipbtn .chip{box-shadow:0 0 0 2px var(--accent-soft)}
+
+/* ---------- paneel: open of weg; vaste knoppen bovenin; vervoermiddelen apart ---------- */
+.sheet,.sheet[data-size=peek],.sheet[data-size=half],.sheet[data-size=full]{max-height:calc(100dvh - 66px - env(safe-area-inset-top))}
+body[data-view=plan] .sheet{max-height:calc(100dvh - 236px - env(safe-area-inset-top))}
+.trip-nav .icon-btn{display:none}
+.trip-nav,.livecard .trip-nav{margin-left:0}
+#nav-back{margin-left:0}
+#trip-actions{margin-left:auto;display:flex;gap:8px}
+.top-btn.stop{background:var(--bad);color:#fff;border-color:transparent}
+.brand[hidden]{display:none}
+.whole{margin-top:6px}
+.whole summary{list-style:none;cursor:pointer;font-weight:700;color:var(--accent);padding:12px 2px}
+.whole summary::-webkit-details-marker{display:none}
+.whole summary::after{content:" ▾"}
+.whole[open] summary::after{content:" ▴"}
+.modes{display:flex;gap:8px;overflow-x:auto;margin:0 0 12px;padding-bottom:2px}
+.modes .btn{flex:none}
+.modes .btn .ic{color:var(--accent)}
+.alert .btn{margin-top:10px;color:var(--ink)}

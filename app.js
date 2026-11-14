@@ -2,7 +2,7 @@
 'use strict';
 const API = 'https://api.transitous.org/api';
 const REFRESH_MS = 30000;
-const VERSION = 30;
+const VERSION = 31;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const store = {
@@ -99,6 +99,14 @@ function distM(a, b) {
 }
 const placeOf = p => p.stopId || `${p.lat},${p.lon}`;
 const walkMin = it => Math.round(it.legs.filter(l => l.mode === 'WALK').reduce((s, l) => s + (l.duration || 0), 0) / 60);
+// Rangorde van reizen: aankomsttijd, plus een "prijs" per overstap en extra voor een krappe overstap.
+// Een rechtstreekse trein die 5 minuten later aankomt wint zo van drie keer overstappen.
+function rank(it, fromTime) {
+  const tr = it.legs.filter(l => isTransit(l) && (!fromTime || ms(l.endTime) > fromTime));
+  let p = Math.max(0, tr.length - 1) * 7 * 60000;
+  for (let i = 1; i < tr.length; i++) if (ms(tr[i].startTime) - ms(tr[i - 1].endTime) < 4 * 60000) p += 5 * 60000;
+  return ms(it.endTime) + p;
+}
 const transfersText = n => n === 0 ? 'rechtstreeks' : n === 1 ? '1 overstap' : `${n} overstappen`;
 const platform = p => p.track ? ` · perron ${esc(p.track)}` : '';
 
@@ -282,14 +290,55 @@ function shortName(name, mode) {
   }
   return name.length <= 5 ? name : name.split(' ')[0].slice(0, 5);
 }
-function ridePosition(leg, now) {
+/* De route van een rit als lijn, met voor elke halte de afstand langs die lijn. */
+const pathCache = new WeakMap();
+function legPath(leg) {
+  if (pathCache.has(leg)) return pathCache.get(leg);
+  let res = null;
+  const g = leg.fullGeom || (leg.full ? null : leg.legGeometry);
   const st = leg.full || [leg.from, ...(leg.intermediateStops || []), leg.to];
+  if (g && g.points && st.length > 1) {
+    const line = decodePolyline(g.points, g.precision), cum = [0];
+    for (let i = 1; i < line.length; i++) cum.push(cum[i - 1] + Math.hypot((line[i][0] - line[i - 1][0]) * 0.61, line[i][1] - line[i - 1][1]));
+    let j = 0; const at = [];
+    st.forEach(s => {
+      let best = j, bd = Infinity;
+      for (let k = j; k < line.length; k++) { const d = ((line[k][0] - s.lon) * 0.61) ** 2 + (line[k][1] - s.lat) ** 2; if (d < bd) { bd = d; best = k; } }
+      j = best; at.push(cum[best]);
+    });
+    if (line.length > 1) res = { line, cum, at };
+  }
+  pathCache.set(leg, res);
+  return res;
+}
+function pointAt(path, dist) {
+  const { line, cum } = path;
+  let i = 1; while (i < cum.length - 1 && cum[i] < dist) i++;
+  const span = cum[i] - cum[i - 1] || 1, k = Math.max(0, Math.min(1, (dist - cum[i - 1]) / span));
+  return [line[i - 1][0] + (line[i][0] - line[i - 1][0]) * k, line[i - 1][1] + (line[i][1] - line[i - 1][1]) * k];
+}
+function ridePosition(leg, now) {
+  const st = leg.full || [leg.from, ...(leg.intermediateStops || []), leg.to], path = legPath(leg);
   for (let i = 0; i < st.length - 1; i++) {
     const d = ms(st[i].departure || st[i].arrival), a = ms(st[i + 1].arrival || st[i + 1].departure);
     if (now < d) return [st[i].lon, st[i].lat];
-    if (now <= a) { const k = (now - d) / (a - d || 1); return [st[i].lon + (st[i + 1].lon - st[i].lon) * k, st[i].lat + (st[i + 1].lat - st[i].lat) * k]; }
+    if (now <= a) {
+      const k = (now - d) / (a - d || 1);
+      if (path && path.at.length === st.length) return pointAt(path, path.at[i] + (path.at[i + 1] - path.at[i]) * k);   // langs de echte route
+      return [st[i].lon + (st[i + 1].lon - st[i].lon) * k, st[i].lat + (st[i + 1].lat - st[i].lat) * k];
+    }
   }
   return null;
+}
+/* Afstand in meters van een punt tot een lijn (per lijnstuk, niet alleen de hoekpunten). */
+function distToLine(line, p) {
+  let best = Infinity; const kx = 111320 * Math.cos(p.lat * Math.PI / 180), ky = 110540;
+  for (let i = 1; i < line.length; i++) {
+    const ax = (line[i - 1][0] - p.lon) * kx, ay = (line[i - 1][1] - p.lat) * ky, bx = (line[i][0] - p.lon) * kx, by = (line[i][1] - p.lat) * ky;
+    const dx = bx - ax, dy = by - ay, t = Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy || 1)));
+    const d = Math.hypot(ax + t * dx, ay + t * dy); if (d < best) best = d;
+  }
+  return best;
 }
 function paintVehicles() {
   if (!mapReady) return;
@@ -440,11 +489,11 @@ async function searchPlan({ silent, cursor } = {}) {
       fromPlace: from.place, toPlace: to.place,
       time: when ? new Date(when).toISOString() : new Date().toISOString(),
       arriveBy: $('#when-mode').value === 'arr' ? 'true' : null,
-      pageCursor: cursor, numItineraries: 5
+      pageCursor: cursor, numItineraries: 8, additionalTransferTime: 2
     });
     if (from !== state.from || to !== state.to || state.trip) return;
     const keepId = silent && state.results[state.sel]?.legs.map(l => l.tripId).join();
-    state.results = (data.itineraries || []).sort((a, b) => ms(a.endTime) - ms(b.endTime));
+    state.results = (data.itineraries || []).sort((a, b) => rank(a) - rank(b)).slice(0, 6);
     state.cursors = { prev: data.previousPageCursor, next: data.nextPageCursor };
     state.paged = !!cursor;
     const k = keepId ? state.results.findIndex(it => it.legs.map(l => l.tripId).join() === keepId) : -1;
@@ -554,19 +603,21 @@ async function checkBest() {
   const o = currentOrigin(); if (!o) return;
   lastBest = Date.now();
   try {
-    const data = await api('/v5/plan', { fromPlace: o.place, toPlace: placeOf(destOf(trip.itin)), time: new Date(Math.max(o.time, Date.now())).toISOString(), numItineraries: 4 });
+    const data = await api('/v5/plan', { fromPlace: o.place, toPlace: placeOf(destOf(trip.itin)), time: new Date(Math.max(o.time, Date.now())).toISOString(), numItineraries: 6 });
     if (state.trip !== trip) return;
     const mine = new Set(trip.itin.legs.filter(isTransit).map(l => l.tripId));
-    const cand = (data.itineraries || []).filter(it => !it.legs.some(l => l.cancelled)).sort((a, b) => ms(a.endTime) - ms(b.endTime))[0];
+    const cand = (data.itineraries || []).filter(it => !it.legs.some(l => l.cancelled)).sort((a, b) => rank(a) - rank(b))[0];
     if (!cand) state.best = null;
     else {
       const same = cand.legs.filter(isTransit).every(l => mine.has(l.tripId));
-      const gain = mins(ms(trip.itin.endTime) - ms(cand.endTime));
-      state.best = !same && gain >= 3 ? { itin: cand, gain, from: o.name } : { current: true };
+      const gain = mins(ms(trip.itin.endTime) - ms(cand.endTime)), better = mins(rank(trip.itin, Date.now()) - rank(cand));
+      const fewer = trip.itin.legs.filter(l => isTransit(l) && ms(l.endTime) > Date.now()).length - cand.legs.filter(isTransit).length;
+      const why = gain >= 2 ? `${gain} min eerder binnen` : fewer > 0 ? `${fewer === 1 ? 'een overstap' : `${fewer} overstappen`} minder` : 'rustiger overstap';
+      state.best = !same && better >= 3 ? { itin: cand, gain, why, from: o.name } : { current: true };
       const first = cand.legs.find(isTransit), bestKey = cand.legs.filter(isTransit).map(l => l.tripId).join();
       if (state.best.itin && first && trip.bestKey !== bestKey) {
         trip.bestKey = bestKey;
-        notify(`${gain} min eerder binnen met ${legName(first)} van ${hhmm(first.startTime)} vanaf ${first.from.name}.`, 'Snellere optie', 'omreis-sneller');
+        notify(`${state.best.why} met ${theRide(first)} van ${hhmm(first.startTime)} vanaf ${nice(first.from.name)}.`, 'Betere optie', 'omreis-sneller');
       }
     }
   } catch { /* volgende ronde opnieuw */ }
@@ -611,6 +662,7 @@ async function refreshTrip() {
       leg.to = { ...leg.to, ...stops[b] };
       leg.intermediateStops = stops.slice(a + 1, b);
       leg.fullFrom = a;
+      leg.fullGeom = tl.legGeometry && tl.legGeometry.points ? { points: tl.legGeometry.points, precision: tl.legGeometry.precision } : null; pathCache.delete(leg);
       leg.full = stops.map(x => ({ name: x.name, lat: x.lat, lon: x.lon, arrival: x.arrival, departure: x.departure }));   // hele rit, om het voertuig ook vóór jouw halte te volgen
       leg.startTime = stops[a].departure || leg.startTime;
       leg.endTime = stops[b].arrival || leg.endTime;
@@ -647,6 +699,10 @@ function evaluate() {
     if (!isTransit(leg) || ms(leg.endTime) < now) return;
     if (leg.cancelled) P.push({ sev: 'bad', leg: i, key: `c${i}`, text: `${legName(leg)} richting ${leg.headsign || leg.to.name} van ${hhmm(leg.scheduledStartTime || leg.startTime)} rijdt niet.` });
   });
+  if (trip.missed != null && L[trip.missed] && ms(L[trip.missed].endTime) > now && !L[trip.missed].cancelled) {
+    const m = L[trip.missed];
+    P.push({ sev: 'bad', leg: trip.missed, key: `x${trip.missed}`, text: `Het lijkt erop dat je ${theRide(m)} van ${hhmm(m.startTime)} niet hebt gehaald.` });
+  } else if (trip.missed != null) trip.missed = null;
   let prev = -1;
   L.forEach((leg, i) => {
     if (!isTransit(leg)) return;
@@ -670,6 +726,29 @@ function evaluate() {
   state.problemKey = key;
 }
 
+/* Meereizen: aan je gps zien of je echt in je bus of trein zit, of dat je hem gemist hebt. */
+function checkProgress() {
+  const trip = state.trip;
+  if (!trip || !trip.started || !state.gps || Date.now() - state.gps.at > 45000) return;
+  const L = trip.itin.legs, now = Date.now(), me = state.gps;
+  trip.seen = trip.seen || {};
+  const i = L.findIndex((l, k) => isTransit(l) && !l.cancelled && ms(l.endTime) > now && !(trip.seen[k] && trip.seen[k].on));
+  if (i < 0) return;
+  const leg = L[i], s = trip.seen[i] || (trip.seen[i] = {}), start = ms(leg.startTime);
+  if (now < start + 45000 || !leg.legGeometry || !leg.legGeometry.points) return;
+  const dStop = distM(me, leg.from), dRoute = distToLine(decodePolyline(leg.legGeometry.points, leg.legGeometry.precision), me);
+  if (dStop > 150 && dRoute < 150) {                       // weg van de halte en óp de route: je zit erin
+    s.on = true; if (trip.missed === i) trip.missed = null;
+    store.set('omreis.trip', trip);
+    notify(`Je zit in ${theRide(leg)} richting ${nice(leg.headsign || leg.to.name)}.`, 'Ingestapt', 'omreis-sneller');
+    evaluate(); render();
+  } else if (!s.missed && now > start + 150000 && (dStop < 200 || dRoute > 400)) {   // ruim na vertrek nog bij de halte, of ergens anders
+    s.missed = true; trip.missed = i;
+    store.set('omreis.trip', trip);
+    evaluate(); render();
+  }
+}
+
 /* Pop-up in de app, en een systeemmelding als de app op de achtergrond staat. */
 let toastTimer;
 function notify(text, title = 'Je reis is verstoord', tag = 'omreis-storing') {
@@ -689,6 +768,7 @@ function notify(text, title = 'Je reis is verstoord', tag = 'omreis-storing') {
 function currentOrigin() {
   const L = state.trip.itin.legs, now = Date.now();
   const bad = state.problems.find(p => p.sev === 'bad');
+  if (state.trip.missed != null && state.gps && now - state.gps.at < 120000) return { place: `${state.gps.lat},${state.gps.lon}`, name: 'waar je nu bent', time: now };
   const cur = L.findIndex(l => ms(l.endTime) > now);
   if (cur < 0) return null;
   const leg = L[cur];
@@ -718,7 +798,7 @@ async function loadAlts(manual) {
     const usedBad = new Set(trip.itin.legs.filter(l => l.cancelled).map(l => l.tripId));
     state.alts.list = (data.itineraries || [])
       .filter(it => !it.legs.some(l => l.cancelled || usedBad.has(l.tripId)))
-      .sort((a, b) => ms(a.endTime) - ms(b.endTime)).slice(0, 4);
+      .sort((a, b) => rank(a) - rank(b)).slice(0, 4);
   } catch (err) { state.alts.error = err.message; }
   state.altsLoading = false;
   render();
@@ -832,7 +912,7 @@ function renderTrack() {
   const curStep = steps.findIndex(s => ms(s.end) > now);
   const stateTxt = { ok: trip.started ? 'Op schema' : 'Rijdt volgens plan', warn: 'Let op', bad: 'Verstoord' }[sev];
 
-  const alert = P.length ? `<div class="alert ${sev}" role="status" aria-live="polite">${svg('alert')}<div><strong>${sev === 'bad' ? 'Je reis is verstoord' : 'Let op'}</strong>${P.map(p => `<p>${esc(p.text)}</p>`).join('')}</div></div>` : '';
+  const alert = P.length ? `<div class="alert ${sev}" role="status" aria-live="polite">${svg('alert')}<div><strong>${sev === 'bad' ? 'Je reis is verstoord' : 'Let op'}</strong>${P.map(p => `<p>${esc(p.text)}</p>`).join('')}${P.some(p => p.key[0] === 'x') ? '<button class="btn" data-action="onboard">Ik zit er wel in</button>' : ''}</div></div>` : '';
 
   let hero = '';
   if (!trip.started) hero = `<button class="btn-primary" data-action="begin">Start reis</button>`;
@@ -850,7 +930,7 @@ function renderTrack() {
   let best = '';
   if (trip.started && sev !== 'bad' && state.best) {
     best = state.best.current ? `<div class="bestline">${svg('check')}Dit is nu de snelste reis</div>`
-      : `<h2>Snellere optie</h2><p class="alts-sub">${state.best.gain} min eerder binnen · vanaf ${esc(state.best.from)}</p>${itinCard(state.best.itin, 0, 'Wissel', 'usebest', false, '')}`;
+      : `<h2>Betere optie</h2><p class="alts-sub">${state.best.why} · vanaf ${esc(nice(state.best.from))}</p>${itinCard(state.best.itin, 0, 'Wissel', 'usebest', false, '')}`;
   }
   const stepsHtml = steps.map((s, k) => {
     const done = trip.started && ms(s.end) <= now, active = trip.started && k === curStep;
@@ -900,15 +980,10 @@ function renderTrack() {
   el.innerHTML = `
     ${header}
     ${alert}${live ? '' : hero}${best}${alts}${L.map(l => alertsHtml(l.alerts)).join('')}
-    <h2>Stap voor stap</h2>
-    <ol class="steps">${stepsHtml}</ol>
+    ${trip.started ? `<details class="whole"><summary>Hele reis bekijken</summary><ol class="steps">${stepsHtml}</ol></details>` : `<h2>Je reis</h2><ol class="steps">${stepsHtml}</ol>`}
     <div class="updated">Bijgewerkt om ${hhmm(trip.updated)}${navigator.onLine ? '' : ' · offline'}</div>
-    <div class="actions">
-      <button class="btn" data-action="manual">Zelf reis kiezen</button>
-    </div>
     <details class="more"><summary>Meer</summary><div>
       <button class="btn-text" data-action="sim">${trip.sim != null ? 'Teststoring uitzetten' : 'Teststoring simuleren'}</button>
-      <button class="btn-text danger" data-action="stop">Reis stoppen</button>
     </div></details>`;
 }
 
@@ -995,15 +1070,16 @@ function nearby() {
 
 /* ---------- vertrektijden ---------- */
 async function loadBoard(stop) {
-  state.board = { stop, items: state.board?.stop.id === stop.id ? state.board.items : null, updated: null };
+  const same = state.board && state.board.stop.id === stop.id;
+  state.board = { stop, items: same ? state.board.items : null, mode: same ? state.board.mode : null, updated: null };
   renderBoard();
   try {
     const ids = stop.ids || [stop.id];
-    const parts = await Promise.all(ids.map(id => api('/v5/stoptimes', { stopId: id, n: ids.length > 1 ? 12 : 25 }).catch(() => ({ stopTimes: [] }))));
+    const parts = await Promise.all(ids.map(id => api('/v5/stoptimes', { stopId: id, n: ids.length > 1 ? 16 : 30 }).catch(() => ({ stopTimes: [] }))));
     if (state.board?.stop.id !== stop.id) return;
     const seen = new Set();
     state.board.items = parts.flatMap(p => p.stopTimes || []).filter(s => s.place.departure && !seen.has(s.tripId) && seen.add(s.tripId))
-      .sort((x, y) => ms(x.place.departure) - ms(y.place.departure)).slice(0, 30);
+      .sort((x, y) => ms(x.place.departure) - ms(y.place.departure)).slice(0, 80);
     state.board.updated = Date.now(); state.board.error = null;
   } catch (err) { if (state.board) state.board.error = err.message; }
   renderBoard();
@@ -1021,14 +1097,21 @@ function renderBoard() {
   if (b.error && !b.items) body = `<div class="msg err">Ophalen lukte niet (${esc(b.error)}).</div>`;
   else if (!b.items) body = '<div class="msg"><span class="spinner"></span>Vertrektijden laden…</div>';
   else if (!b.items.length) body = '<div class="msg">Geen vertrekken gevonden voor deze halte.</div>';
-  else body = '<div class="board">' + b.items.filter(s => s.place.departure).map(s => {
+  else {
+    const CATS = ['Trein', 'Metro', 'Tram', 'Bus', 'Veer'];
+    const cat = m => isRail(m) ? 'Trein' : KIND[m] || 'Bus';
+    const all = b.items.filter(s => s.place.departure), cats = CATS.filter(c => all.some(s => cat(s.mode) === c));
+    const sel = cats.includes(b.mode) ? b.mode : cats[0];
+    const tabs = cats.length > 1 ? `<div class="modes">${cats.map(c => `<button class="btn${c === sel ? ' sel' : ''}" data-action="boardmode" data-m="${c}">${svg({ Trein: 'train', Metro: 'metro', Tram: 'tram', Bus: 'bus', Veer: 'ferry' }[c])}${c}</button>`).join('')}</div>` : '';
+    body = tabs + '<div class="board">' + all.filter(s => cat(s.mode) === sel).map(s => {
     const p = s.place, c = s.cancelled || p.cancelled, d = mins(ms(p.departure) - ms(p.scheduledDeparture));
     return `<button type="button" class="dep ${c ? 'cancelled' : ''}" data-action="ride" data-trip="${esc(s.tripId)}">
       <span class="t"><span class="${c ? 'strike' : ''}">${hhmm(p.scheduledDeparture)}</span>${c ? '<small class="gone">vervalt</small>' : d >= 1 ? `<small class="late">+${d} min</small>` : ''}</span>
       <span class="d">${chip(s)}<span>${esc(s.headsign || '')}</span><small>${esc(s.agencyName || '')}</small></span>
       ${p.track ? `<span class="trk">perron ${esc(p.track)}</span>` : ''}
     </button>`;
-  }).join('') + '</div>';
+    }).join('') + '</div>';
+  }
   el.innerHTML = `<div class="board-head"><h3>${esc(b.stop.label)}</h3><span class="head-btns"><button class="icon-btn star ${fav ? 'on' : ''}" data-action="fav" aria-label="${fav ? 'Verwijder favoriet' : 'Bewaar als favoriet'}">${svg('star')}</button></span></div>
     ${body}${b.updated ? `<div class="updated">Bijgewerkt om ${hhmm(b.updated)}</div>` : ''}`;
 }
@@ -1068,18 +1151,16 @@ function useMyLocation(quiet) {
 /* ---------- paneel ---------- */
 const SIZES = ['peek', 'half', 'full'];
 function focusMap(on) { document.body.classList.toggle('map-focus', on); }
-function setSheet(size) { $('#sheet').dataset.size = size; focusMap(false); }
+function setSheet() { $('#sheet').dataset.size = 'full'; focusMap(false); }   // er is maar één open stand
 (function sheetDrag() {
   const h = $('#handle'); let y0 = null;
-  const base = () => (state.trip && state.trip.started && !state.ride && !state.stopsOpen ? 'peek' : 'half');
   h.addEventListener('pointerdown', e => { y0 = e.clientY; h.setPointerCapture(e.pointerId); });
   h.addEventListener('pointerup', e => {
     if (y0 == null) return;
-    const dy = e.clientY - y0, size = $('#sheet').dataset.size, down = document.body.classList.contains('map-focus'); y0 = null;
-    if (down) return setSheet(dy < -60 ? 'full' : base());            // omlaag staand: elke tik of veeg haalt hem terug
-    if (dy < -15) return setSheet('full');                             // omhoog vegen: helemaal open
-    if (dy > 15) return size === 'full' ? setSheet(base()) : focusMap(true);   // omlaag vegen: een stand lager
-    setSheet(size === 'full' ? base() : 'full');                       // tik: wissel tussen normaal en helemaal open
+    const dy = e.clientY - y0, down = document.body.classList.contains('map-focus'); y0 = null;
+    if (dy > 15) return focusMap(true);      // omlaag vegen: weg
+    if (dy < -15) return focusMap(false);    // omhoog vegen: open
+    focusMap(!down);                         // tik: wissel
   });
 })();
 
@@ -1094,7 +1175,12 @@ function render() {
   $('#view-stops').hidden = view !== 'stops';
   $('#plan-form').hidden = view !== 'plan';
   $('#quick').hidden = view !== 'plan';
-  $('#stops-btn').hidden = view === 'stops' || view === 'ride';
+  const started = view === 'trip' && state.trip.started;
+  document.body.dataset.view = view;
+  $('#nav-back').hidden = view === 'plan' || started;
+  $('.brand').hidden = !$('#nav-back').hidden;
+  $('#trip-actions').hidden = !started;
+  $('#stops-btn').hidden = view !== 'plan';
   $('#net').hidden = navigator.onLine;
   const lp = $('#line-pill'); lp.hidden = !state.lineFilter || view === 'ride' || !!state.trip;
   if (state.lineFilter) lp.innerHTML = `${esc(state.lineFilter.label)} ${svg('close')}`;
@@ -1123,6 +1209,13 @@ document.addEventListener('click', e => {
       break;
     case 'page': searchPlan({ cursor: state.cursors[a.dataset.dir] }); break;
     case 'begin': beginTrip(); break;
+    case 'onboard': { const t = state.trip; if (t.missed != null) { t.seen[t.missed].on = true; t.missed = null; store.set('omreis.trip', t); evaluate(); render(); } break; }
+    case 'navback':
+      if (state.ride) { state.ride = null; render(); paintVehicles(); }
+      else if (state.stopsOpen) { state.stopsOpen = false; render(); }
+      else if (state.trip) closeTrip();
+      break;
+    case 'boardmode': state.board.mode = a.dataset.m; renderBoard(); break;
     case 'refreshall':
       a.classList.add('spin'); setTimeout(() => a.classList.remove('spin'), 900);
       if (state.ride) openRide(state.ride.tripId);
@@ -1247,7 +1340,7 @@ let lastRefresh = 0;
 function tick(force) {
   if (!document.hidden && state.ride && state.ride.leg) { const sc = $('#sheet-body').scrollTop; renderRide(); $('#sheet-body').scrollTop = sc; }
   if (document.hidden || state.stopsOpen || state.ride || !state.trip) return;
-  evaluate(); if (!state.modal) render();
+  checkProgress(); evaluate(); if (!state.modal) render();
   // alleen een gestarte reis wordt bewaakt; al het andere ververs je zelf
   if (state.trip.started && (force || Date.now() - lastRefresh >= REFRESH_MS)) { lastRefresh = Date.now(); refreshTrip(); }
 }

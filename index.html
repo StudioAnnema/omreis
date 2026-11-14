@@ -20,12 +20,14 @@
 <div id="map" aria-hidden="true"></div>
 
 <header class="top">
+  <button id="nav-back" class="top-btn" data-action="navback" hidden><span data-ic="back"></span>Terug</button>
   <div class="brand">
     <svg viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" fill="#5B2EFF"/><path d="M186 392V120" fill="none" stroke="#fff" stroke-opacity=".38" stroke-width="40" stroke-linecap="round"/><path d="M186 392v-70c0-92 150-70 150-170" fill="none" stroke="#fff" stroke-width="40" stroke-linecap="round"/><circle cx="336" cy="140" r="34" fill="#C8F53C"/></svg>
     omreis
   </div>
   <div id="net" class="net" hidden>Geen verbinding</div>
   <button id="line-pill" class="top-btn pill-on" data-action="clearline" hidden></button>
+  <span id="trip-actions" hidden><button class="top-btn" data-action="manual">Andere reis</button><button class="top-btn stop" data-action="stop">Stop reis</button></span>
   <button id="stops-btn" class="top-btn" data-action="stops"><span data-ic="clock"></span>Vertrektijden</button>
 </header>
 
