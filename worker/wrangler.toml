@@ -1,0 +1,6 @@
+# Omreis-tussenlaag: geeft gps-posities van bussen door en bewaart de NS-sleutel.
+# De NS-sleutel staat NIET in dit bestand; die zet je eenmalig met:  npx wrangler secret put NS_KEY
+name = "omreis-api"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+workers_dev = true
