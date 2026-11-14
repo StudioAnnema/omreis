@@ -2,7 +2,8 @@
 'use strict';
 const API = 'https://api.transitous.org/api';
 const REFRESH_MS = 30000;
-const VERSION = 31;
+const VERSION = 32;
+const PROXY = 'https://omreis-api.studioannema.workers.dev';   // eigen tussenlaag: echte gps-posities en NS-gegevens
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const store = {
@@ -167,7 +168,7 @@ function initMap() {
       focusMap(!document.body.classList.contains('map-focus'));   // tik op de kaart: paneel omlaag, nog een tik: weer omhoog
     });
     ['veh-c', 'stops'].forEach(l => { map.on('mouseenter', l, () => { map.getCanvas().style.cursor = 'pointer'; }); map.on('mouseleave', l, () => { map.getCanvas().style.cursor = ''; }); });
-    let t; map.on('moveend', () => { clearTimeout(t); t = setTimeout(() => { fetchVehicles(); fetchStops(); }, 350); });
+    let t; map.on('moveend', () => { clearTimeout(t); t = setTimeout(() => { fetchVehicles(); fetchStops(); fetchGps(); }, 350); });
     mapReady = true; mapKey = ''; drawMap(); drawMe(); fetchVehicles();
   });
 }
@@ -340,6 +341,34 @@ function distToLine(line, p) {
   }
   return best;
 }
+/* Echte gps-posities van bussen, trams en metro's (via de tussenlaag). Treinen komen van NS. */
+let gpsVeh = new Map(), gpsFetched = 0;
+const shownPos = new Map();
+const tripTail = id => String(id).split('_').slice(2).join('_').replace(/^nl-OpenOV_/, '');
+async function fetchGps() {
+  if (!mapReady || document.hidden) return;
+  gpsFetched = Date.now();
+  const b = map.getBounds();
+  let n = b.getNorth(), s = b.getSouth(), w = b.getWest(), e = b.getEast();
+  const padLat = (n - s) * 0.5, padLon = (e - w) * 0.5; n += padLat; s -= padLat; w -= padLon; e += padLon;
+  // je eigen bus kan nog buiten beeld rijden: neem zijn hele rit mee
+  if (state.trip) state.trip.itin.legs.forEach(l => (isTransit(l) && !isRail(l.mode) && l.full || []).forEach(p => { n = Math.max(n, p.lat); s = Math.min(s, p.lat); w = Math.min(w, p.lon); e = Math.max(e, p.lon); }));
+  if (n - s > 1.2 || e - w > 2) return;   // te ver uitgezoomd
+  try {
+    const r = await fetch(`${PROXY}/voertuigen?min=${n.toFixed(4)},${w.toFixed(4)}&max=${s.toFixed(4)},${e.toFixed(4)}`);
+    if (!r.ok) return;
+    const now = Date.now() / 1000;
+    gpsVeh = new Map((await r.json()).filter(v => now - v.ts < 240).map(v => [v.t, v]));
+  } catch { /* tussenlaag onbereikbaar: de berekende positie blijft */ }
+}
+const gpsFor = id => { const v = gpsVeh.get(tripTail(id)); return v ? [v.lo, v.la] : null; };
+// laat een voertuig naar zijn nieuwe positie glijden in plaats van te verspringen
+function glide(id, target) {
+  const cur = shownPos.get(id);
+  if (!cur || Math.abs(cur[0] - target[0]) + Math.abs(cur[1] - target[1]) > 0.02) { shownPos.set(id, target.slice()); return target; }
+  cur[0] += (target[0] - cur[0]) * 0.1; cur[1] += (target[1] - cur[1]) * 0.1;
+  return cur.slice();
+}
 function paintVehicles() {
   if (!mapReady) return;
   const now = Date.now(), best = new Map();
@@ -362,14 +391,14 @@ function paintVehicles() {
   best.forEach(({ sg, score }) => {
     if (score > 120000) return;   // rijdt nu, of vertrekt binnen twee minuten
     const f = (now - sg.dep) / (sg.arr - sg.dep || 1);
-    feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: along(sg, f) }, properties: { tripId: sg.id, name: shortName(sg.name, sg.mode), color: sg.color || (isRail(sg.mode) ? DEEP : BRAND), sel: false } });
+    feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: glide(sg.id, (!isRail(sg.mode) && gpsFor(sg.id)) || along(sg, f)) }, properties: { tripId: sg.id, name: shortName(sg.name, sg.mode), color: sg.color || (isRail(sg.mode) ? DEEP : BRAND), sel: false } });
   });
   mine.filter(l => l.full && !l.cancelled).forEach(l => {
-    const p = ridePosition(l, now);
+    const p0 = ridePosition(l, now), g = !isRail(l.mode) && gpsFor(l.tripId), p = g || p0 ? glide(l.tripId, g || p0) : null;
     if (p && now > ms(l.full[0].departure || l.full[0].arrival) - 120000) feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: { tripId: l.tripId, name: shortName(l.displayName || l.routeShortName || '', l.mode), color: hex(l.routeColor) || (isRail(l.mode) ? DEEP : BRAND), sel: !!only } });
   });
   if (state.ride?.leg) {
-    const l = state.ride.leg, p = ridePosition(l, now);
+    const l = state.ride.leg, p0 = ridePosition(l, now), g = !isRail(l.mode) && gpsFor(l.tripId), p = g || p0 ? glide(l.tripId, g || p0) : null;
     if (p) feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: { tripId: l.tripId, name: shortName(l.displayName || l.routeShortName || '', l.mode), color: hex(l.routeColor) || (isRail(l.mode) ? DEEP : BRAND), sel: true } });
   }
   map.getSource('veh').setData(fc(feats));
@@ -403,6 +432,7 @@ let lastPaint = 0;
   requestAnimationFrame(loop);
 })(0);
 setInterval(() => { if (state.vehOn && Date.now() - vehFetched > 90000) fetchVehicles(); }, 15000);
+setInterval(() => { if (Date.now() - gpsFetched > 18000) fetchGps(); }, 5000);
 
 /* ---------- zoeken met suggesties ---------- */
 function geoLabel(g) {

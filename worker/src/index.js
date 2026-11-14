@@ -12,17 +12,24 @@ const json = (data, status, headers, maxAge) => new Response(JSON.stringify(data
   status, headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=${maxAge || 0}` }
 });
 
-/** Alle voertuigen uit de feed; het resultaat wordt 10 seconden bewaard zodat de bron niet overvraagd wordt. */
+/** Alle voertuigen uit de feed. De bron mag niet te vaak bevraagd worden, dus het resultaat wordt kort
+ *  hergebruikt (20 seconden in het geheugen, plus 20 seconden aan de rand van Cloudflare). Weigert de bron even, dan gaat de vorige lijst mee. */
+let memo = { at: 0, list: null };
 async function allVehicles(ctx) {
-  const cache = globalThis.caches && caches.default, key = new Request('https://omreis.internal/voertuigen-alle');
-  if (cache) { const hit = await cache.match(key); if (hit) return hit.json(); }
-  const r = await fetch(FEED, { headers: { 'User-Agent': 'omreis-reisapp/1.0' } });
-  if (!r.ok) throw new Error('feed gaf ' + r.status);
-  const list = decodeVehicles(new Uint8Array(await r.arrayBuffer())).map(v => ({
-    t: v.tripId, r: v.routeId, la: +v.lat.toFixed(5), lo: +v.lon.toFixed(5), ts: v.time || 0, s: v.status ?? 2, v: v.vehicle || ''
-  }));
-  if (cache) ctx.waitUntil(cache.put(key, json(list, 200, {}, 10)));
-  return list;
+  const now = Date.now();
+  if (memo.list && now - memo.at < 20000) return memo.list;
+  try {
+    const r = await fetch(FEED, { headers: { 'User-Agent': 'omreis-reisapp/1.0 (github.com/StudioAnnema)' }, cf: { cacheTtl: 20, cacheEverything: true } });
+    if (!r.ok) throw new Error('feed gaf ' + r.status);
+    const list = decodeVehicles(new Uint8Array(await r.arrayBuffer())).map(v => ({
+      t: v.tripId, r: v.routeId, la: +v.lat.toFixed(5), lo: +v.lon.toFixed(5), ts: v.time || 0, s: v.status ?? 2, v: v.vehicle || ''
+    }));
+    memo = { at: now, list };
+    return list;
+  } catch (err) {
+    if (memo.list && now - memo.at < 180000) return memo.list;   // liever iets oudere posities dan geen
+    throw err;
+  }
 }
 
 export default {
