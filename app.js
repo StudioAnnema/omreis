@@ -2,7 +2,7 @@
 'use strict';
 const API = 'https://api.transitous.org/api';
 const REFRESH_MS = 30000;
-const VERSION = 32;
+const VERSION = 33;
 const PROXY = 'https://omreis-api.studioannema.workers.dev';   // eigen tussenlaag: echte gps-posities en NS-gegevens
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -104,7 +104,7 @@ const walkMin = it => Math.round(it.legs.filter(l => l.mode === 'WALK').reduce((
 // Een rechtstreekse trein die 5 minuten later aankomt wint zo van drie keer overstappen.
 function rank(it, fromTime) {
   const tr = it.legs.filter(l => isTransit(l) && (!fromTime || ms(l.endTime) > fromTime));
-  let p = Math.max(0, tr.length - 1) * 7 * 60000;
+  let p = Math.max(0, tr.length - 1) * 10 * 60000;
   for (let i = 1; i < tr.length; i++) if (ms(tr[i].startTime) - ms(tr[i - 1].endTime) < 4 * 60000) p += 5 * 60000;
   return ms(it.endTime) + p;
 }
@@ -361,6 +361,61 @@ async function fetchGps() {
     gpsVeh = new Map((await r.json()).filter(v => now - v.ts < 240).map(v => [v.t, v]));
   } catch { /* tussenlaag onbereikbaar: de berekende positie blijft */ }
 }
+/* NS-gegevens via de tussenlaag: waar treinen echt zijn, hoe lang ze zijn, en storingen op het spoor. */
+let nsTrains = new Map(), nsFetched = 0, nsDis = null, nsDisAt = 0;
+const nsInfo = new Map();
+async function ns(path) {
+  const r = await fetch(PROXY + '/ns' + path);
+  if (!r.ok) throw new Error('NS gaf ' + r.status);
+  return r.json();
+}
+const trainNo = label => (String(label || '').match(/(\d{2,6})\s*$/) || [])[1] || '';
+async function fetchTrains() {
+  if (document.hidden) return;
+  nsFetched = Date.now();
+  try {
+    const d = await ns('/virtual-train-api/api/vehicle?features=trein');
+    nsTrains = new Map(((d.payload && d.payload.treinen) || []).map(t => [String(t.treinNummer), [t.lng, t.lat]]));
+  } catch { /* geen NS-posities: de berekende positie blijft */ }
+}
+/* Lengte en voorzieningen van een trein; wordt één keer opgehaald en daarna onthouden. */
+function trainInfo(leg) {
+  if (!leg || !isRail(leg.mode)) return null;
+  const n = trainNo(leg.tripShortName || leg.displayName);
+  if (!n) return null;
+  if (nsInfo.has(n)) return nsInfo.get(n);
+  nsInfo.set(n, null);
+  ns(`/virtual-train-api/api/v1/trein/${n}?features=zitplaats`).then(d => {
+    const parts = d.materieeldelen || [];
+    nsInfo.set(n, d.lengte ? { bakken: d.lengte, meters: d.lengteInMeters, type: [...new Set(parts.map(m => (m.type || '').split(' ')[0]))].join(' + '), fac: [...new Set(parts.flatMap(m => m.faciliteiten || []))], kort: !!d.ingekort } : false);
+    render();
+  }).catch(() => nsInfo.set(n, false));
+  return null;
+}
+const trainLen = leg => { const i = trainInfo(leg); return i ? ` · ${i.bakken} bakken${i.kort ? ' (korter dan gepland)' : ''}` : ''; };
+const trainTag = leg => { const i = trainInfo(leg); return i ? `<span class="tag ${i.kort ? 'warn' : 'len'}">${i.bakken} bakken${i.kort ? ', korter dan gepland' : ''}</span>` : ''; };
+const FAC = { FIETS: 'fiets mee', TOILET: 'toilet', STILTE: 'stiltecoupé', WIFI: 'wifi', STROOM: 'stopcontacten', TOEGANKELIJK: 'rolstoeltoegankelijk' };
+function trainFacts(leg) {
+  const i = trainInfo(leg); if (!i) return '';
+  return `<div class="facts">${svg('train')}<div><strong>${i.bakken} bakken${i.meters ? ` · ${i.meters} m` : ''}${i.type ? ` · ${esc(i.type)}` : ''}</strong>${i.kort ? '<span class="tag warn">korter dan gepland</span>' : ''}<small>${i.fac.map(f => FAC[f]).filter(Boolean).join(' · ')}</small></div></div>`;
+}
+async function fetchDisruptions() {
+  if (Date.now() - nsDisAt < 5 * 60000) return;
+  nsDisAt = Date.now();
+  try {
+    const d = await ns('/reisinformatie-api/api/v3/disruptions?isActive=true');
+    nsDis = d.filter(x => x.type !== 'MAINTENANCE').map(x => {
+      const ts = (x.timespans || [])[0] || {};
+      return { title: (x.title || '').replace(/\.$/, ''), text: (ts.situation && ts.situation.label) || '', until: (x.expectedDuration && x.expectedDuration.description) || '', advice: ((ts.advices || [])[0]) || '' };
+    });
+    if (!state.trip && !state.stopsOpen && !state.ride) renderPlan();
+  } catch { /* geen storingsinformatie */ }
+}
+function disruptionsHtml() {
+  if (!nsDis || !nsDis.length) return '';
+  return `<details class="whole dis"><summary>${svg('alert')}Storingen op het spoor (${nsDis.length})</summary>${nsDis.map(x => `<div class="dis-item"><strong>${esc(x.title)}</strong><p>${esc(x.text)}</p>${x.until ? `<small>${esc(x.until)}</small>` : ''}</div>`).join('')}</details>`;
+}
+const vehGps = (id, mode, label) => isRail(mode) ? (nsTrains.get(trainNo(label)) || null) : gpsFor(id);
 const gpsFor = id => { const v = gpsVeh.get(tripTail(id)); return v ? [v.lo, v.la] : null; };
 // laat een voertuig naar zijn nieuwe positie glijden in plaats van te verspringen
 function glide(id, target) {
@@ -391,14 +446,14 @@ function paintVehicles() {
   best.forEach(({ sg, score }) => {
     if (score > 120000) return;   // rijdt nu, of vertrekt binnen twee minuten
     const f = (now - sg.dep) / (sg.arr - sg.dep || 1);
-    feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: glide(sg.id, (!isRail(sg.mode) && gpsFor(sg.id)) || along(sg, f)) }, properties: { tripId: sg.id, name: shortName(sg.name, sg.mode), color: sg.color || (isRail(sg.mode) ? DEEP : BRAND), sel: false } });
+    feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: glide(sg.id, vehGps(sg.id, sg.mode, sg.name) || along(sg, f)) }, properties: { tripId: sg.id, name: shortName(sg.name, sg.mode), color: sg.color || (isRail(sg.mode) ? DEEP : BRAND), sel: false } });
   });
   mine.filter(l => l.full && !l.cancelled).forEach(l => {
-    const p0 = ridePosition(l, now), g = !isRail(l.mode) && gpsFor(l.tripId), p = g || p0 ? glide(l.tripId, g || p0) : null;
+    const p0 = ridePosition(l, now), g = vehGps(l.tripId, l.mode, l.tripShortName || l.displayName), p = g || p0 ? glide(l.tripId, g || p0) : null;
     if (p && now > ms(l.full[0].departure || l.full[0].arrival) - 120000) feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: { tripId: l.tripId, name: shortName(l.displayName || l.routeShortName || '', l.mode), color: hex(l.routeColor) || (isRail(l.mode) ? DEEP : BRAND), sel: !!only } });
   });
   if (state.ride?.leg) {
-    const l = state.ride.leg, p0 = ridePosition(l, now), g = !isRail(l.mode) && gpsFor(l.tripId), p = g || p0 ? glide(l.tripId, g || p0) : null;
+    const l = state.ride.leg, p0 = ridePosition(l, now), g = vehGps(l.tripId, l.mode, l.tripShortName || l.displayName), p = g || p0 ? glide(l.tripId, g || p0) : null;
     if (p) feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: { tripId: l.tripId, name: shortName(l.displayName || l.routeShortName || '', l.mode), color: hex(l.routeColor) || (isRail(l.mode) ? DEEP : BRAND), sel: true } });
   }
   map.getSource('veh').setData(fc(feats));
@@ -432,7 +487,7 @@ let lastPaint = 0;
   requestAnimationFrame(loop);
 })(0);
 setInterval(() => { if (state.vehOn && Date.now() - vehFetched > 90000) fetchVehicles(); }, 15000);
-setInterval(() => { if (Date.now() - gpsFetched > 18000) fetchGps(); }, 5000);
+setInterval(() => { if (Date.now() - gpsFetched > 18000) fetchGps(); if (Date.now() - nsFetched > 15000 && (state.vehOn || state.trip || state.ride)) fetchTrains(); }, 5000);
 
 /* ---------- zoeken met suggesties ---------- */
 function geoLabel(g) {
@@ -564,8 +619,8 @@ function sayLines(it) {
   tr.forEach((l, i) => {
     const ic = MODE_IC[l.mode] || (isRail(l.mode) ? 'train' : 'bus'), plat = l.from.track ? `, perron ${esc(l.from.track)}` : '';
     out.push([ic, i
-      ? `Op ${esc(nice(l.from.name))} overstappen op <strong>${esc(theRide(l))}</strong> richting ${esc(nice(l.headsign || l.to.name))} · ${hhmm(l.startTime)}${plat}`
-      : `<strong>${esc(rideName(l, true))}</strong> richting ${esc(nice(l.headsign || l.to.name))} · ${hhmm(l.startTime)}${plat}`]);
+      ? `Op ${esc(nice(l.from.name))} overstappen op <strong>${esc(theRide(l))}</strong> richting ${esc(nice(l.headsign || l.to.name))} · ${hhmm(l.startTime)}${plat}${trainLen(l)}`
+      : `<strong>${esc(rideName(l, true))}</strong> richting ${esc(nice(l.headsign || l.to.name))} · ${hhmm(l.startTime)}${plat}${trainLen(l)}`]);
   });
   if (tr.length) out.push(['pin', `Uitstappen op ${esc(nice(tr[tr.length - 1].to.name))}${!isTransit(last) && last !== first && last.duration >= 120 ? `, daarna ${dur(last.duration)} lopen` : ''}`]);
   return out.map(([ic, t]) => `<li>${svg(ic)}<span>${t}</span></li>`).join('');
@@ -573,7 +628,8 @@ function sayLines(it) {
 function renderPlan() {
   const has = state.results.length > 0;
   $('#shortcuts').hidden = has;
-  $('#shortcuts').innerHTML = shortcutsHtml();
+  $('#shortcuts').innerHTML = shortcutsHtml() + disruptionsHtml();
+  fetchDisruptions();
   const sb = $('#save-trip'); sb.hidden = !has; sb.classList.toggle('on', savedIndex() >= 0);
   const live = has && !$('#when').value && !state.paged;
   $('#plan-refresh').hidden = true;
@@ -891,7 +947,7 @@ function buildSteps(L, nm) {
     steps.push({
       kind: 'in', tripId: leg.tripId, leg, icon: MODE_IC[leg.mode] || (isRail(leg.mode) ? 'train' : 'bus'), start: lastEnd, end: leg.startTime, time: leg.startTime, sched: leg.scheduledStartTime, cancelled: leg.cancelled,
       title: `${prevT ? `Overstappen op ${esc(theRide(leg))}` : esc(rideName(leg, true))} richting ${esc(nice(leg.headsign || leg.to.name))}`,
-      sub: `Vanaf ${nm(leg.from)}${leg.from.track ? ` · <strong>perron ${esc(leg.from.track)}</strong>` : ''}${gapTxt}`, chip: chip(leg)
+      sub: `Vanaf ${nm(leg.from)}${leg.from.track ? ` · <strong>perron ${esc(leg.from.track)}</strong>` : ''}${gapTxt}${trainTag(leg)}`, chip: chip(leg)
     });
     const mid = leg.intermediateStops || [];
     steps.push({
@@ -995,7 +1051,7 @@ function renderTrack() {
       <div class="trip-nav"><button class="icon-btn" data-action="stop" aria-label="Reis stoppen">${svg('back')}</button><span class="eyebrow">Naar ${esc(toLabel || destOf(trip.itin).name)}</span><span class="state ${sev}"><i></i>${stateTxt}</span></div>
       <div class="live-main">
         <div class="eta">${st ? `<b class="num">${eta}</b><span>min</span>` : svg('check')}</div>
-        <div class="live-txt"><div class="k">${label}</div><div class="v">${nc.v}</div><div class="s">${wh ? `${wh} · ` : ''}${away ? `${away} · ` : ''}${nc.s}</div></div>
+        <div class="live-txt"><div class="k">${label}</div><div class="v">${nc.v}</div><div class="s">${nt && st && st.kind === 'in' ? trainLen(nt).replace(/^ · /, '') + (trainLen(nt) ? ' · ' : '') : ''}${wh ? `${wh} · ` : ''}${away ? `${away} · ` : ''}${nc.s}</div></div>
       </div>
       <div class="track">${track}<em style="left:${pct.toFixed(1)}%"></em></div>
       ${chain}
@@ -1078,7 +1134,7 @@ function renderRide() {
       <h1>${esc(rideName(leg, true))} naar ${esc(nice(leg.headsign || leg.to.name))}</h1>
       <div class="arrive"><span>${status}</span><span class="state ${leg.cancelled ? 'bad' : late >= 2 ? 'warn' : 'ok'}"><i></i>${leg.cancelled ? 'Vervalt' : late >= 1 ? `+${late} min` : 'Op tijd'}</span></div>
     </div>
-    ${alertsHtml(leg.alerts)}
+    ${trainFacts(leg)}${alertsHtml(leg.alerts)}
     <div class="timeline"><div class="leg" style="--c:${hex(leg.routeColor) || 'var(--accent)'}">${rows}</div></div>
     <div class="updated">Bijgewerkt om ${hhmm(r.updated)}</div>`;
 }
