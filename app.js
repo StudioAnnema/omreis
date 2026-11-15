@@ -2,7 +2,7 @@
 'use strict';
 const API = 'https://api.transitous.org/api';
 const REFRESH_MS = 30000;
-const VERSION = 33;
+const VERSION = 34;
 const PROXY = 'https://omreis-api.studioannema.workers.dev';   // eigen tussenlaag: echte gps-posities en NS-gegevens
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -387,17 +387,24 @@ function trainInfo(leg) {
   nsInfo.set(n, null);
   ns(`/virtual-train-api/api/v1/trein/${n}?features=zitplaats`).then(d => {
     const parts = d.materieeldelen || [];
-    nsInfo.set(n, d.lengte ? { bakken: d.lengte, meters: d.lengteInMeters, type: [...new Set(parts.map(m => (m.type || '').split(' ')[0]))].join(' + '), fac: [...new Set(parts.flatMap(m => m.faciliteiten || []))], kort: !!d.ingekort } : false);
+    nsInfo.set(n, d.lengte ? { bakken: d.lengte, meters: d.lengteInMeters, type: [...new Set(parts.map(m => (m.type || '').split(' ')[0]))].join(' + '), fac: [...new Set(parts.flatMap(m => m.faciliteiten || []))], kort: !!d.ingekort, imgs: parts.map(m => m.afbeelding).filter(u => /^https:\/\//.test(u || '')), sets: parts.map(m => (m.bakken || []).length || 1) } : false);
     render();
   }).catch(() => nsInfo.set(n, false));
   return null;
 }
 const trainLen = leg => { const i = trainInfo(leg); return i ? ` · ${i.bakken} bakken${i.kort ? ' (korter dan gepland)' : ''}` : ''; };
 const trainTag = leg => { const i = trainInfo(leg); return i ? `<span class="tag ${i.kort ? 'warn' : 'len'}">${i.bakken} bakken${i.kort ? ', korter dan gepland' : ''}</span>` : ''; };
+// De trein getekend: één blokje per bak, met een neus voor en achter; treinstellen staan los van elkaar.
+function trainCars(leg, big) {
+  const i = trainInfo(leg); if (!i) return '';
+  const sets = i.sets && i.sets.length ? i.sets : [i.bakken];
+  return `<span class="cars${big ? ' big' : ''}" role="img" aria-label="${i.bakken} bakken">${sets.map(n => `<span class="set">${'<i></i>'.repeat(Math.max(1, n))}</span>`).join('')}</span>`;
+}
 const FAC = { FIETS: 'fiets mee', TOILET: 'toilet', STILTE: 'stiltecoupé', WIFI: 'wifi', STROOM: 'stopcontacten', TOEGANKELIJK: 'rolstoeltoegankelijk' };
 function trainFacts(leg) {
   const i = trainInfo(leg); if (!i) return '';
-  return `<div class="facts">${svg('train')}<div><strong>${i.bakken} bakken${i.meters ? ` · ${i.meters} m` : ''}${i.type ? ` · ${esc(i.type)}` : ''}</strong>${i.kort ? '<span class="tag warn">korter dan gepland</span>' : ''}<small>${i.fac.map(f => FAC[f]).filter(Boolean).join(' · ')}</small></div></div>`;
+  const pics = (i.imgs || []).length ? `<div class="trainpic">${i.imgs.map(u => `<img src="${esc(u)}" alt="" loading="lazy" onerror="this.remove()">`).join('')}</div>` : '';
+  return `<div class="facts">${svg('train')}<div><strong>${i.bakken} bakken${i.meters ? ` · ${i.meters} m` : ''}${i.type ? ` · ${esc(i.type)}` : ''}</strong>${i.kort ? '<span class="tag warn">korter dan gepland</span>' : ''}<small>${i.fac.map(f => FAC[f]).filter(Boolean).join(' · ')}</small>${trainCars(leg, true)}${pics}</div></div>`;
 }
 async function fetchDisruptions() {
   if (Date.now() - nsDisAt < 5 * 60000) return;
@@ -947,7 +954,7 @@ function buildSteps(L, nm) {
     steps.push({
       kind: 'in', tripId: leg.tripId, leg, icon: MODE_IC[leg.mode] || (isRail(leg.mode) ? 'train' : 'bus'), start: lastEnd, end: leg.startTime, time: leg.startTime, sched: leg.scheduledStartTime, cancelled: leg.cancelled,
       title: `${prevT ? `Overstappen op ${esc(theRide(leg))}` : esc(rideName(leg, true))} richting ${esc(nice(leg.headsign || leg.to.name))}`,
-      sub: `Vanaf ${nm(leg.from)}${leg.from.track ? ` · <strong>perron ${esc(leg.from.track)}</strong>` : ''}${gapTxt}${trainTag(leg)}`, chip: chip(leg)
+      sub: `Vanaf ${nm(leg.from)}${leg.from.track ? ` · <strong>perron ${esc(leg.from.track)}</strong>` : ''}${gapTxt}${trainTag(leg)}${trainCars(leg)}`, chip: chip(leg)
     });
     const mid = leg.intermediateStops || [];
     steps.push({

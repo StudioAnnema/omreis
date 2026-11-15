@@ -471,3 +471,18 @@ body[data-view=plan] .sheet{max-height:calc(100dvh - 236px - env(safe-area-inset
 .dis-item{background:var(--surface);border-radius:var(--r);padding:12px 14px;margin:8px 0;box-shadow:var(--shadow)}
 .dis-item p{margin:4px 0;font-size:.92rem}
 .dis-item small{color:var(--muted)}
+
+/* ---------- trein getekend ---------- */
+.cars{display:inline-flex;gap:5px;align-items:center;vertical-align:middle}
+.cars .set{display:inline-flex;gap:2px}
+.cars i{display:block;width:16px;height:9px;background:var(--accent);border-radius:2px}
+.cars .set i:first-child{border-radius:6px 2px 2px 6px}
+.cars .set i:last-child{border-radius:2px 6px 6px 2px}
+.cars .set i:only-child{border-radius:6px}
+.cars.big{display:flex;margin-top:12px;gap:8px}
+.cars.big i{width:30px;height:16px;border-radius:3px}
+.cars.big .set i:first-child{border-radius:10px 3px 3px 10px}
+.cars.big .set i:last-child{border-radius:3px 10px 10px 3px}
+.facts > div{min-width:0;flex:1}
+.trainpic{display:flex;gap:4px;overflow-x:auto;margin-top:12px;padding-bottom:4px}
+.trainpic img{height:30px;flex:none}
