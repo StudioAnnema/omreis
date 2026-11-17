@@ -486,3 +486,46 @@ body[data-view=plan] .sheet{max-height:calc(100dvh - 236px - env(safe-area-inset
 .facts > div{min-width:0;flex:1}
 .trainpic{display:flex;gap:4px;overflow-x:auto;margin-top:12px;padding-bottom:4px}
 .trainpic img{height:30px;flex:none}
+
+/* ---------- richting D: één ding tegelijk ---------- */
+.ridelink{display:inline;border:0;background:none;padding:0;font:inherit;font-weight:800;color:var(--accent);text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:4px;cursor:pointer}
+.ridelink .dot{display:inline-block;width:.55em;height:.55em;border-radius:50%;background:var(--c);margin-right:.3em;vertical-align:.1em}
+.dview{text-align:center;padding:2px 0 4px}
+.dtop{display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;font-size:.86rem;color:var(--muted);margin-bottom:14px}
+.dtop b{color:var(--ink)}
+.dtop .state{flex:none}
+.dk,.dk2{font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.dring{width:170px;height:170px;border-radius:50%;margin:10px auto 16px;display:grid;place-items:center;position:relative;background:conic-gradient(var(--accent) 0 var(--p),var(--accent-soft) var(--p) 100%);transition:background .6s}
+.dring::after{content:"";position:absolute;inset:12px;border-radius:50%;background:var(--bg)}
+.dring div{position:relative;z-index:1;line-height:1}
+.dring b{display:block;font-size:3.2rem;font-weight:800;letter-spacing:-.05em}
+.dring span{font-size:.82rem;font-weight:700;color:var(--muted)}
+.dring .ic{width:52px;height:52px;color:var(--accent);stroke-width:2.6}
+.dsay{font-size:1.32rem;font-weight:800;letter-spacing:-.02em;line-height:1.3;margin:0 4px}
+.dsub{margin:8px 4px 0;color:var(--muted);font-size:.9rem;line-height:1.5}
+.dsub .ridelink{font-size:.9rem}
+.dnext{margin-top:16px;padding:12px 14px;background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);text-align:left;font-size:.95rem;font-weight:600}
+.dnext b{display:block;font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:3px}
+.dbtns{display:flex;gap:8px;margin-top:14px}
+.dbtns .btn{flex:1;justify-content:center}
+.bestcard.d{text-align:center}
+.bestcard.d .k{text-align:left}
+.dbig{font-size:3.6rem;font-weight:800;letter-spacing:-.06em;line-height:1;margin:4px 0 12px}
+.bestcard.d .dsay{margin-bottom:6px}
+.bestcard.d .meta b{color:var(--ink)}
+.how{text-align:left;margin:12px 0 14px}
+.how summary{list-style:none;cursor:pointer;font-weight:700;color:var(--accent);font-size:.9rem;text-align:center;padding:4px}
+.how summary::-webkit-details-marker{display:none}
+.how .say{margin-top:8px}
+.vehcard{position:fixed;z-index:32;left:12px;right:12px;bottom:calc(58px + env(safe-area-inset-bottom));max-width:536px;margin:0 auto;background:var(--surface);border-radius:var(--r-lg);padding:12px 14px 14px;box-shadow:0 12px 40px rgba(26,18,56,.25)}
+.vehcard .row{gap:8px;min-width:0}
+.vehcard strong{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vc-where{font-weight:700;margin:8px 0 4px;line-height:1.35}
+.vc-meta{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:.82rem;color:var(--muted);margin-bottom:10px}
+.vc-meta span:empty{display:none}
+.vehcard .btn{width:100%;justify-content:center}
+body:not(.map-focus) .vehcard{display:none}
+
+.map-btns{flex-direction:row}
+.maplibregl-ctrl-top-left{top:calc(66px + env(safe-area-inset-top))}
+body[data-view=plan] .maplibregl-ctrl-top-left{top:calc(226px + env(safe-area-inset-top))}
