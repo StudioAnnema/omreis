@@ -2,7 +2,7 @@
 'use strict';
 const API = 'https://api.transitous.org/api';
 const REFRESH_MS = 30000;
-const VERSION = 36;
+const VERSION = 37;
 const PROXY = 'https://omreis-api.studioannema.workers.dev';   // eigen tussenlaag: echte gps-posities en NS-gegevens
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1586,7 +1586,24 @@ function tick(force) {
 }
 setInterval(tick, 10000);
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+/* Altijd de nieuwste versie: bij openen en bij terugkomen in de app kijken of er een nieuwere is, en dan één keer herladen. */
+async function checkUpdate() {
+  try {
+    const r = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    const { v } = await r.json();
+    if (v > VERSION && sessionStorage.getItem('omreis.reloaded') !== String(v)) {
+      sessionStorage.setItem('omreis.reloaded', String(v));
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (reg) await reg.update().catch(() => {});
+      location.reload();
+    }
+  } catch { /* offline: later opnieuw */ }
+}
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => {});
+}
+checkUpdate();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 initMap();
 if (state.trip) { if (state.trip.started) watchGps(); evaluate(); }
 render();
