@@ -529,3 +529,24 @@ body:not(.map-focus) .vehcard{display:none}
 .map-btns{flex-direction:row}
 .maplibregl-ctrl-top-left{top:calc(66px + env(safe-area-inset-top))}
 body[data-view=plan] .maplibregl-ctrl-top-left{top:calc(226px + env(safe-area-inset-top))}
+
+/* ---------- NS-stijl, zitplaats, lopen, lijnkeuze ---------- */
+.chip.ns{background:#FFC917!important;color:#003082!important;border-color:transparent;font-weight:800;letter-spacing:.02em}
+.ridelink.ns{display:inline-flex;align-items:baseline;gap:5px;background:#FFC917;color:#003082;text-decoration:none;border-radius:8px;padding:1px 9px 2px;line-height:1.3}
+.ridelink.ns b{font-weight:800}
+.dsub .ridelink.ns{padding:0 7px}
+.aan{display:block;font-size:.72rem;font-weight:600;color:var(--muted)}
+.leave{font-weight:700;color:var(--ink);margin:-6px 0 10px}
+.seat{display:flex;gap:8px;align-items:flex-start;text-align:left;background:#FFF6D6;color:#5A4500;border-radius:12px;padding:10px 12px;margin:0 0 12px;font-size:.88rem}
+.seat .ic{width:18px;height:18px;flex:none;margin-top:1px;color:#003082}
+.seat-in{display:block;margin-top:8px;background:#FFF6D6;color:#5A4500;border-radius:10px;padding:8px 10px;font-size:.86rem}
+.wish{margin-top:14px;background:var(--surface);border-radius:var(--r);padding:12px 14px;box-shadow:var(--shadow)}
+.wish-k{font-weight:700;font-size:.9rem;margin-bottom:8px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.wish-k .btn-text{padding:0}
+.lp-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.lp{background:none;border:2px solid transparent;border-radius:9px;padding:1px;cursor:pointer}
+.lp.on{border-color:var(--accent)}
+.lp-form{display:flex;gap:6px;flex:1;min-width:170px}
+.lp-form input{flex:1;min-width:0;border:1px solid var(--line);border-radius:99px;padding:8px 12px;font:inherit;font-size:.88rem;background:var(--bg)}
+.lp-form .btn{padding:8px 14px}
+body[data-view=plan]:not(.map-focus) .map-btns{display:none}
