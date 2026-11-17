@@ -2,7 +2,7 @@
 'use strict';
 const API = 'https://api.transitous.org/api';
 const REFRESH_MS = 30000;
-const VERSION = 34;
+const VERSION = 35;
 const PROXY = 'https://omreis-api.studioannema.workers.dev';   // eigen tussenlaag: echte gps-posities en NS-gegevens
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -716,15 +716,36 @@ async function checkBest() {
   } catch { /* volgende ronde opnieuw */ }
   if (!state.modal) render();
 }
+/* Je reis als vaste melding in het meldingencentrum (iPhone: alleen als Omreis op je beginscherm staat).
+   Hij wordt bijgewerkt zodra er een nieuwe handeling is, zolang de app open is of net op de achtergrond staat. */
+const plain = s => { const d = document.createElement('div'); d.innerHTML = s; return d.textContent; };
+let lastNote = '';
+function liveNote() {
+  const t = state.trip;
+  if (!t || !t.started || !('Notification' in window) || Notification.permission !== 'granted' || !navigator.serviceWorker) return;
+  const nc = nowCard(t.itin.legs, Date.now()), title = plain(nc.v);
+  if (title === lastNote) return;   // alleen een nieuwe melding bij een nieuwe stap
+  lastNote = title;
+  const body = `${plain(nc.k)} · ${plain(nc.s)}
+Aankomst ${hhmm(t.itin.endTime)}`;
+  navigator.serviceWorker.ready.then(r => r.showNotification(title, { body, tag: 'omreis-reis', icon: 'icon-192.png', badge: 'icon-192.png', silent: true, renotify: false, requireInteraction: true })).catch(() => {});
+}
+function clearNote() {
+  lastNote = '';
+  navigator.serviceWorker?.ready.then(r => r.getNotifications({ tag: 'omreis-reis' })).then(ns => ns.forEach(n => n.close())).catch(() => {});
+}
 function beginTrip() {
   state.trip.started = true; state.best = null; checkBest();
   store.set('omreis.trip', state.trip);
-  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+  lastNote = '';
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().then(liveNote).catch(() => {});
+  else liveNote();
   watchGps(); setSheet('peek'); render();
   const fx = $('#startfx'); fx.hidden = false; setTimeout(() => { fx.hidden = true; }, 1600);
   mapKey = ''; drawMap();
 }
 function closeTrip() {
+  clearNote();
   state.trip = null; state.best = null; state.alts = null; state.problems = []; state.problemKey = ''; state.modal = null;
   localStorage.removeItem('omreis.trip');
   render();
@@ -779,6 +800,7 @@ async function refreshTrip() {
   evaluate(); render();
   changes.forEach(c => notify(c, 'Perronwijziging', 'omreis-perron'));
   if (trip.started && !state.ride && !document.body.classList.contains('map-focus')) liveCamera();
+  liveNote();
   if (trip.started && Date.now() - lastBest > 55000) checkBest();
 }
 

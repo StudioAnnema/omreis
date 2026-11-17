@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Omreis – vier richtingen</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#F3EFFF;--surface:#fff;--ink:#1A1238;--muted:#6A6387;--line:#E0D8F7;--accent:#5B2EFF;--soft:#E9E2FF;--deep:#2B1A66;--lime:#C8F53C;--ok:#0B7A55;--okSoft:#DDF5EA;--warn:#A65A00;--warnSoft:#FFEFD6;--bus:#50AF46}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:500 15px/1.45 "Manrope",system-ui,sans-serif;padding:28px 16px 64px}
+  .wrap{max-width:1240px;margin:0 auto}
+  header h1{font-size:1.9rem;font-weight:800;letter-spacing:-.03em;margin:0 0 6px}
+  header p{margin:0;color:var(--muted);max-width:62ch}
+  .back{display:inline-block;margin-top:12px;color:var(--accent);font-weight:700}
+  nav.jump{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 8px}
+  nav.jump a{background:var(--surface);border-radius:99px;padding:8px 14px;font-weight:700;text-decoration:none;color:var(--ink);box-shadow:0 2px 8px rgba(43,26,102,.08)}
+  section.concept{margin-top:40px;display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:28px;align-items:start}
+  @media (max-width:860px){section.concept{grid-template-columns:1fr}}
+  .about .letter{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--deep);color:#fff;font-weight:800;font-size:1.2rem}
+  .about h2{font-size:1.35rem;font-weight:800;letter-spacing:-.02em;margin:12px 0 6px}
+  .about p{margin:0 0 12px;color:var(--muted)}
+  .about ul{margin:0;padding:0;list-style:none;display:grid;gap:6px;font-size:.92rem}
+  .about li{display:flex;gap:8px}
+  .about li b{flex:none;width:18px;text-align:center}
+  .about .plus b{color:var(--ok)} .about .min b{color:#D12C3F}
+  .phones{display:flex;gap:22px;flex-wrap:wrap}
+  figure{margin:0}
+  figcaption{text-align:center;font-weight:700;color:var(--muted);font-size:.85rem;margin-top:10px}
+
+  /* telefoon */
+  .phone{position:relative;width:290px;height:600px;border-radius:42px;background:var(--bg);border:9px solid #14102A;overflow:hidden;box-shadow:0 20px 50px rgba(26,18,56,.22);display:flex;flex-direction:column}
+  .phone::before{content:"";position:absolute;top:8px;left:50%;transform:translateX(-50%);width:86px;height:24px;border-radius:99px;background:#14102A;z-index:20}
+  .status{height:40px;flex:none;display:flex;justify-content:space-between;align-items:flex-end;padding:0 24px 4px;font-size:.72rem;font-weight:800;position:relative;z-index:10}
+  .map{position:relative;flex:none;overflow:hidden}
+  .map svg{display:block;width:100%;height:100%}
+  .fill{flex:1;min-height:0;overflow:hidden;position:relative}
+  .pad{padding:14px}
+  .card{background:var(--surface);border-radius:20px;padding:14px;box-shadow:0 4px 16px rgba(43,26,102,.08)}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--bg);border-radius:24px 24px 0 0;padding:10px 14px 16px;box-shadow:0 -8px 30px rgba(43,26,102,.16)}
+  .grip{width:38px;height:4px;border-radius:9px;background:var(--line);margin:0 auto 10px}
+  .k{font-size:.62rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+  .big{font-size:1.6rem;font-weight:800;letter-spacing:-.04em;line-height:1.05}
+  .mid{font-size:1.05rem;font-weight:800;letter-spacing:-.02em;line-height:1.25}
+  .sm{font-size:.78rem;color:var(--muted)}
+  .row{display:flex;align-items:center;gap:8px}
+  .between{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .chip{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 7px;border-radius:6px;font-size:.7rem;font-weight:800;color:#fff;background:var(--deep)}
+  .chip.bus{background:var(--bus)} .chip.walk{background:none;color:var(--muted);padding:0}
+  .btn{display:block;width:100%;border:0;border-radius:14px;padding:12px;font:inherit;font-weight:800;text-align:center;background:var(--accent);color:#fff}
+  .btn.ghost{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+  .btn.danger{background:#fff;color:#D12C3F;box-shadow:inset 0 0 0 1px #F3C7CC}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:.68rem;font-weight:800;padding:3px 8px;border-radius:99px;background:var(--okSoft);color:var(--ok)}
+  .pill.warn{background:var(--warnSoft);color:var(--warn)}
+  .pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .search{background:var(--surface);border-radius:16px;padding:12px 14px;box-shadow:0 4px 16px rgba(43,26,102,.1);display:flex;align-items:center;gap:10px;font-weight:700}
+  .search .dot{width:9px;height:9px;border-radius:50%;background:var(--lime);box-shadow:0 0 0 2px var(--accent)}
+  .cars{display:inline-flex;gap:2px;vertical-align:middle}
+  .cars i{display:block;width:11px;height:7px;background:var(--accent);border-radius:2px}
+  .cars i:first-child{border-radius:5px 2px 2px 5px}.cars i:last-child{border-radius:2px 5px 5px 2px}
+  .bar{display:flex;gap:3px;height:6px;margin:10px 0 6px}
+  .bar i{display:block;height:6px;border-radius:9px;background:var(--bus)}
+  .bar i.t{background:var(--deep)} .bar i.w{background:repeating-linear-gradient(90deg,var(--muted) 0 3px,transparent 3px 6px)}
+  .opt{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+  .opt:first-child{border-top:0}
+  .time{font-weight:800;font-variant-numeric:tabular-nums}
+  .tabs{display:flex;justify-content:space-around;padding:8px 0 14px;border-top:1px solid var(--line);background:var(--surface);flex:none}
+  .tabs span{font-size:.62rem;font-weight:800;color:var(--muted);text-align:center}
+  .tabs span.on{color:var(--accent)}
+  .tabs span::before{content:"";display:block;width:18px;height:18px;border-radius:6px;margin:0 auto 3px;background:currentColor;opacity:.25}
+  .tabs span.on::before{opacity:1}
+
+  /* B: kaarten */
+  .stepcard{background:linear-gradient(140deg,var(--deep),var(--accent));color:#fff;border-radius:24px;padding:18px;position:relative;overflow:hidden}
+  .stepcard .k{color:var(--lime)}
+  .dots{display:flex;gap:5px;justify-content:center;margin:12px 0}
+  .dots i{width:7px;height:7px;border-radius:50%;background:var(--line)} .dots i.on{width:20px;border-radius:9px;background:var(--accent)}
+  .peek{position:absolute;right:-226px;top:0;width:240px;height:100%;border-radius:24px;background:var(--surface);opacity:.6}
+  .swipe{display:flex;gap:10px;overflow:hidden}
+  .swipe .card{flex:none;width:200px}
+
+  /* C: tijdlijn */
+  .tl{position:relative;padding-left:22px}
+  .tl::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:3px;border-radius:3px;background:linear-gradient(var(--line) 0 34%,var(--bus) 34% 62%,var(--deep) 62%)}
+  .st{position:relative;padding:5px 0;font-size:.82rem;display:flex;justify-content:space-between;gap:6px}
+  .st::before{content:"";position:absolute;left:-19px;top:9px;width:9px;height:9px;border-radius:50%;background:#fff;border:2px solid var(--muted)}
+  .st.done{color:var(--muted)} .st.done::before{border-color:var(--line)}
+  .st b{font-weight:800}
+  .veh{position:relative;margin:2px 0 2px -26px;display:flex;align-items:center;gap:8px;font-size:.78rem;font-weight:800;color:var(--ink)}
+  .veh span.ic{width:22px;height:22px;border-radius:50%;background:var(--bus);box-shadow:0 0 0 3px #fff,0 0 0 6px rgba(80,175,70,.25)}
+  .xfer{margin:6px 0 6px -4px;background:var(--warnSoft);border-radius:12px;padding:8px 10px;font-size:.76rem;color:var(--warn);font-weight:700}
+
+  /* D: rustig */
+  .ring{width:170px;height:170px;border-radius:50%;margin:8px auto 14px;display:grid;place-items:center;background:conic-gradient(var(--accent) 0 72%,var(--soft) 72% 100%);position:relative}
+  .ring::after{content:"";position:absolute;inset:12px;border-radius:50%;background:var(--bg)}
+  .ring div{position:relative;z-index:1;text-align:center}
+  .ring b{display:block;font-size:3rem;font-weight:800;letter-spacing:-.05em;line-height:1}
+  .lock{position:absolute;inset:0;background:linear-gradient(180deg,#2B1A66,#120C2A);color:#fff;display:flex;flex-direction:column;align-items:center;padding-top:56px}
+  .lock .clock{font-size:3.6rem;font-weight:700;letter-spacing:-.04em;line-height:1}
+  .lock .date{opacity:.75;font-weight:600;margin-bottom:24px}
+  .note{width:262px;background:rgba(255,255,255,.18);backdrop-filter:blur(10px);border-radius:20px;padding:12px 14px;color:#fff}
+  .note .app{display:flex;align-items:center;gap:6px;font-size:.66rem;font-weight:800;opacity:.85;text-transform:uppercase;letter-spacing:.06em}
+  .note .app i{width:16px;height:16px;border-radius:5px;background:var(--accent)}
+  .note .t{font-weight:800;margin:6px 0 2px}
+  .note .b{font-size:.78rem;opacity:.85}
+  .note .prog{height:5px;border-radius:9px;background:rgba(255,255,255,.25);margin-top:10px;overflow:hidden}
+  .note .prog i{display:block;width:62%;height:100%;background:var(--lime)}
+
+  .ideas{margin-top:56px;background:var(--surface);border-radius:24px;padding:24px;box-shadow:0 8px 30px rgba(43,26,102,.08)}
+  .ideas h2{margin:0 0 4px;font-size:1.35rem;font-weight:800;letter-spacing:-.02em}
+  .ideas > p{margin:0 0 14px;color:var(--muted)}
+  .ideas ol{margin:0;padding-left:20px;display:grid;gap:10px}
+  .ideas li strong{display:block}
+  .ideas li span{color:var(--muted);font-size:.92rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Vier richtingen voor Omreis</h1>
+  <p>Dezelfde reis (Leiden Breestraat → Den Haag Centraal) in vier verschillende opzetten. Links het idee met voor- en nadelen, rechts het plannen en het onderweg-scherm.</p>
+  <a class="back" href="./">← Terug naar de app</a>
+</header>
+<nav class="jump"><a href="#a">A · Kaart met kaartje</a><a href="#b">B · Stap voor stap</a><a href="#c">C · Tijdlijn</a><a href="#d">D · Eén ding tegelijk</a></nav>
+
+<!-- ============ A ============ -->
+<section class="concept" id="a">
+  <div class="about">
+    <span class="letter">A</span>
+    <h2>Kaart met kaartje</h2>
+    <p>Zoals een taxi-app: de kaart is het scherm, onderin één kaartje met wat je nu moet doen. De huidige app, maar strakker.</p>
+    <ul>
+      <li class="plus"><b>+</b>Je ziet meteen waar je bus is</li>
+      <li class="plus"><b>+</b>Vertrouwd voor iedereen die Uber of Maps kent</li>
+      <li class="min"><b>–</b>De kaart vraagt aandacht, ook als je hem niet nodig hebt</li>
+      <li class="min"><b>–</b>Weinig ruimte voor uitleg bij een storing</li>
+    </ul>
+  </div>
+  <div class="phones">
+    <figure><div class="phone"><div class="status"><span>9:41</span><span>●●● 5G</span></div>
+      <div class="map" style="height:300px" data-map="plan"></div>
+      <div class="fill"><div class="sheet" style="top:-24px">
+        <div class="grip"></div>
+        <div class="search"><span class="dot"></span>Den Haag Centraal</div>
+        <div class="card" style="margin-top:10px">
+          <div class="between"><span class="k">Snelste</span><span class="pill"><i></i>op tijd</span></div>
+          <div class="between" style="margin-top:4px"><span class="big">22:55 → 23:23</span></div>
+          <div class="row" style="margin-top:8px"><span class="chip bus">2</span><span class="chip walk">3 min</span><span class="chip">Sprinter</span><span class="cars"><i></i><i></i><i></i><i></i></span></div>
+        </div>
+        <button class="btn" style="margin-top:10px">Start reis</button>
+        <div class="sm" style="text-align:center;margin-top:8px">2 andere opties</div>
+      </div></div>
+    </div><figcaption>Plannen</figcaption></figure>
+    <figure><div class="phone"><div class="status"><span>9:41</span><span>●●● 5G</span></div>
+      <div class="map" style="height:330px" data-map="go"></div>
+      <div class="fill"><div class="sheet" style="top:-24px">
+        <div class="grip"></div>
+        <div class="row" style="gap:12px">
+          <div style="flex:none;width:64px;height:64px;border-radius:18px;background:var(--lime);display:grid;place-items:center;text-align:center"><div><div class="big">4</div><div style="font-size:.6rem;font-weight:800">min</div></div></div>
+          <div><div class="k">Bus 2 komt eraan</div><div class="mid">Nog 2 haltes van je vandaan</div><div class="sm">22:55 · halte Breestraat</div></div>
+        </div>
+        <div class="bar"><i style="flex:5"></i><i class="w" style="flex:3"></i><i class="t" style="flex:18"></i></div>
+        <div class="sm">Daarna: overstap Leiden Centraal · 5 min · perron 9a</div>
+        <div class="row" style="margin-top:12px;gap:8px"><button class="btn ghost">Andere reis</button><button class="btn danger">Stop</button></div>
+      </div></div>
+    </div><figcaption>Onderweg</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ B ============ -->
+<section class="concept" id="b">
+  <div class="about">
+    <span class="letter">B</span>
+    <h2>Stap voor stap</h2>
+    <p>Je reis is een stapel kaarten. Je ziet alleen de stap van nu, groot en duidelijk. Is hij klaar, dan schuift de volgende vanzelf naar voren.</p>
+    <ul>
+      <li class="plus"><b>+</b>Heel rustig: één opdracht tegelijk</li>
+      <li class="plus"><b>+</b>Ruimte voor perron, treinlengte en waar je moet staan</li>
+      <li class="min"><b>–</b>Overzicht van de hele reis zit één veeg verder</li>
+      <li class="min"><b>–</b>De kaart is klein</li>
+    </ul>
+  </div>
+  <div class="phones">
+    <figure><div class="phone"><div class="status"><span>9:41</span><span>●●● 5G</span></div>
+      <div class="fill pad">
+        <div class="mid" style="font-size:1.4rem;margin:6px 0 12px">Waar wil je heen?</div>
+        <div class="search"><span class="dot"></span>Den Haag Centraal</div>
+        <div class="k" style="margin:18px 0 8px">Kies hoe je reist</div>
+        <div class="swipe">
+          <div class="card" style="box-shadow:0 0 0 2px var(--accent)">
+            <div class="k">Snelste</div><div class="big" style="margin:4px 0">23:23</div><div class="sm">aankomst · 28 min</div>
+            <div class="row" style="margin-top:10px"><span class="chip bus">2</span><span class="chip">Sprinter</span></div>
+            <div class="sm" style="margin-top:8px">1 overstap · 3 min lopen</div>
+          </div>
+          <div class="card">
+            <div class="k">Minste overstappen</div><div class="big" style="margin:4px 0">23:31</div><div class="sm">aankomst · 34 min</div>
+            <div class="row" style="margin-top:10px"><span class="chip bus">45</span></div>
+          </div>
+        </div>
+        <div class="dots"><i class="on"></i><i></i><i></i></div>
+        <button class="btn">Start reis · vertrek 22:55</button>
+      </div>
+    </div><figcaption>Plannen</figcaption></figure>
+    <figure><div class="phone"><div class="status"><span>9:41</span><span>●●● 5G</span></div>
+      <div class="fill pad">
+        <div class="between" style="margin:4px 0 12px"><span class="k">Stap 2 van 4</span><span class="pill"><i></i>aankomst 23:23</span></div>
+        <div style="position:relative">
+          <div class="stepcard">
+            <div class="k">Over 5 min</div>
+            <div class="big" style="font-size:1.5rem;margin:6px 0 10px">Stap uit bij Leiden Centraal</div>
+            <div style="opacity:.85;font-size:.85rem">Nog 2 haltes · bus 2 rijdt nu tussen Breestraat en Stationsweg</div>
+            <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,.2);font-size:.82rem"><b style="color:var(--lime)">Daarna</b><br>Loop 3 min naar perron 9a · Sprinter 23:05</div>
+          </div>
+          <div class="peek"></div>
+        </div>
+        <div class="dots"><i></i><i class="on"></i><i></i><i></i></div>
+        <div class="map" style="height:150px;border-radius:18px" data-map="go"></div>
+      </div>
+    </div><figcaption>Onderweg</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ C ============ -->
+<section class="concept" id="c">
+  <div class="about">
+    <span class="letter">C</span>
+    <h2>Tijdlijn</h2>
+    <p>Zoals OVinfo en de NS-app: de reis is één lange lijn met alle haltes, en je bus of trein schuift er live langs. De kaart zit achter een knop.</p>
+    <ul>
+      <li class="plus"><b>+</b>Precies zien tussen welke haltes je voertuig rijdt</li>
+      <li class="plus"><b>+</b>Overstappen en krappe aansluitingen springen eruit</li>
+      <li class="min"><b>–</b>Meer tekst op het scherm</li>
+      <li class="min"><b>–</b>Minder geschikt voor wie de buurt niet kent</li>
+    </ul>
+  </div>
+  <div class="phones">
+    <figure><div class="phone"><div class="status"><span>9:41</span><span>●●● 5G</span></div>
+      <div class="fill pad">
+        <div class="search" style="margin-top:4px"><span class="dot"></span>Den Haag Centraal</div>
+        <div class="between" style="margin:14px 2px 6px"><span class="k">Vandaag</span><span class="sm">Vertrek nu</span></div>
+        <div class="card" style="padding:4px 14px">
+          <div class="opt"><div style="flex:1"><div class="between"><span class="time">22:55 – 23:23</span><span class="sm">28 min</span></div><div class="bar"><i style="flex:5"></i><i class="w" style="flex:3"></i><i class="t" style="flex:18"></i></div><div class="sm">bus 2 › Sprinter · 1×</div></div></div>
+          <div class="opt"><div style="flex:1"><div class="between"><span class="time">22:58 – 23:31</span><span class="sm">33 min</span></div><div class="bar"><i style="flex:1"></i></div><div class="sm">bus 45 · rechtstreeks</div></div></div>
+          <div class="opt"><div style="flex:1"><div class="between"><span class="time">23:10 – 23:38</span><span class="sm">28 min</span></div><div class="bar"><i style="flex:5"></i><i class="w" style="flex:3"></i><i class="t" style="flex:18"></i></div><div class="sm">bus 169 › Intercity · 1×</div></div></div>
+        </div>
+        <button class="btn" style="margin-top:12px">Start reis</button>
+      </div>
+      <div class="tabs"><span class="on">Reis</span><span>Kaart</span><span>Haltes</span></div>
+    </div><figcaption>Plannen</figcaption></figure>
+    <figure><div class="phone"><div class="status"><span>9:41</span><span>●●● 5G</span></div>
+      <div class="fill pad">
+        <div class="between" style="margin:2px 0 10px"><div><div class="k">Onderweg</div><div class="mid">Aankomst 23:23</div></div><span class="pill"><i></i>op schema</span></div>
+        <div class="card"><div class="tl">
+          <div class="st done"><span>Breestraat</span><span>22:55</span></div>
+          <div class="st done"><span>Stationsweg</span><span>22:57</span></div>
+          <div class="veh"><span class="ic"></span>Bus 2 · nog 1 min</div>
+          <div class="st"><span><b>Leiden Centraal</b></span><b>23:00</b></div>
+          <div class="xfer">Overstap 5 min · loop naar perron 9a<br><span class="cars" style="margin-top:4px"><i></i><i></i><i></i><i></i><i></i><i></i></span> Sprinter, 6 bakken</div>
+          <div class="st"><span>Leiden Centraal · 9a</span><span>23:05</span></div>
+          <div class="st"><span>De Vink</span><span>23:09</span></div>
+          <div class="st"><span><b>Den Haag Centraal</b></span><b>23:23</b></div>
+        </div></div>
+      </div>
+      <div class="tabs"><span class="on">Reis</span><span>Kaart</span><span>Haltes</span></div>
+    </div><figcaption>Onderweg</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ D ============ -->
+<section class="concept" id="d">
+  <div class="about">
+    <span class="letter">D</span>
+    <h2>Eén ding tegelijk</h2>
+    <p>Het rustigste scherm: een grote aftelklok en één zin. Alles wat je onderweg moet weten staat ook in je meldingen, zodat je de app bijna niet hoeft te openen.</p>
+    <ul>
+      <li class="plus"><b>+</b>Voor iedereen te begrijpen, ook zonder OV-ervaring</li>
+      <li class="plus"><b>+</b>Werkt samen met de melding op je vergrendelscherm</li>
+      <li class="min"><b>–</b>Weinig detail zonder door te tikken</li>
+      <li class="min"><b>–</b>Kaart alleen op verzoek</li>
+    </ul>
+  </div>
+  <div class="phones">
+    <figure><div class="phone"><div class="status"><span>9:41</span><span>●●● 5G</span></div>
+      <div class="fill pad" style="display:flex;flex-direction:column">
+        <div class="search" style="margin-top:4px"><span class="dot"></span>Den Haag Centraal</div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:center;text-align:center">
+          <div class="k">Vertrek over</div>
+          <div style="font-size:4rem;font-weight:800;letter-spacing:-.06em;line-height:1">6 min</div>
+          <div class="mid" style="margin:10px 0 4px">Bus 2, daarna de Sprinter</div>
+          <div class="sm">Je bent er om 23:23 · 1 overstap</div>
+        </div>
+        <button class="btn">Start reis</button>
+        <div class="sm" style="text-align:center;margin-top:10px">Andere tijd of route</div>
+      </div>
+    </div><figcaption>Plannen</figcaption></figure>
+    <figure><div class="phone"><div class="status"><span>9:41</span><span>●●● 5G</span></div>
+      <div class="fill pad" style="text-align:center">
+        <div class="k" style="margin-top:6px">Stap uit over</div>
+        <div class="ring"><div><b>4</b><span class="sm">min</span></div></div>
+        <div class="mid" style="font-size:1.25rem">Stap uit bij Leiden Centraal</div>
+        <div class="sm" style="margin-top:6px">Daarna loop je 3 min naar perron 9a</div>
+        <div class="row" style="margin-top:22px;gap:8px"><button class="btn ghost">Hele reis</button><button class="btn ghost">Kaart</button></div>
+      </div>
+    </div><figcaption>Onderweg</figcaption></figure>
+    <figure><div class="phone"><div class="lock">
+      <div class="clock">22:57</div><div class="date">maandag 17 november</div>
+      <div class="note"><div class="app"><i></i>Omreis · nu</div><div class="t">Stap uit bij Leiden Centraal</div><div class="b">Over 4 min · daarna perron 9a, Sprinter 23:05<br>Aankomst 23:23</div><div class="prog"><i></i></div></div>
+    </div></div><figcaption>Melding op je vergrendelscherm</figcaption></figure>
+  </div>
+</section>
+
+<section class="ideas">
+  <h2>Wat in elke richting beter wordt</h2>
+  <p>Los van de opzet zijn dit de verbeteringen aan de reisassistentie zelf.</p>
+  <ol>
+    <li><strong>De app weet wat je aan het doen bent</strong><span>Lopen, wachten, in de bus: aan je gps en snelheid te zien. Je hoeft nergens op te drukken om de volgende stap te krijgen.</span></li>
+    <li><strong>Op tijd waarschuwen, niet achteraf</strong><span>"Vertrek nu om je bus te halen" met looptijd naar de halte, en twee minuten vóór je uitstaphalte een seintje.</span></li>
+    <li><strong>Een overstap is een eigen moment</strong><span>Perron, looprichting, overstaptijd en hoe lang de trein is; bij een krappe overstap meteen een plan B ernaast.</span></li>
+    <li><strong>Bij een storing één duidelijk advies</strong><span>Niet vier opties, maar "Neem bus 45 om 23:02 vanaf dezelfde halte", met de andere keuzes eronder.</span></li>
+    <li><strong>De melding doet het werk</strong><span>De stap van nu staat in je meldingencentrum en wordt vervangen zodra er een nieuwe stap is.</span></li>
+  </ol>
+</section>
+</div>
+
+<script>
+// Eén nep-kaart, overal hergebruikt: licht vlak, water, parken, wegen, spoor en de route.
+const MAP = (go) => `<svg viewBox="0 0 290 330" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+  <rect width="290" height="330" fill="#EEEBF5"/>
+  <path d="M-10 120 C60 100 110 150 170 130 S260 90 300 110 L300 140 C250 125 210 165 165 162 S70 135 -10 152Z" fill="#C7DAFF"/>
+  <ellipse cx="60" cy="250" rx="46" ry="26" fill="#D9EDCF"/><ellipse cx="236" cy="40" rx="40" ry="22" fill="#D9EDCF"/>
+  <g stroke="#fff" stroke-linecap="round" fill="none"><path d="M0 60 L290 80" stroke-width="10"/><path d="M40 0 L80 330" stroke-width="7"/><path d="M150 0 L170 330" stroke-width="10"/><path d="M0 210 L290 230" stroke-width="7"/><path d="M220 0 L250 330" stroke-width="5"/><path d="M0 300 L290 290" stroke-width="5"/></g>
+  <path d="M-10 330 L120 175 L300 20" stroke="#2B1A66" stroke-width="3.5" fill="none" opacity=".55"/>
+  <path d="M70 270 C90 240 110 220 120 190 L126 178" stroke="#fff" stroke-width="9" fill="none" stroke-linecap="round"/>
+  <path d="M70 270 C90 240 110 220 120 190 L126 178" stroke="#50AF46" stroke-width="5.5" fill="none" stroke-linecap="round"/>
+  <path d="M126 178 L240 80" stroke="#fff" stroke-width="9" fill="none" stroke-linecap="round"/>
+  <path d="M126 178 L240 80" stroke="#5B2EFF" stroke-width="5.5" fill="none" stroke-linecap="round"/>
+  <circle cx="70" cy="270" r="7" fill="#fff" stroke="#2B1A66" stroke-width="3.5"/>
+  <circle cx="126" cy="178" r="6.5" fill="#C8F53C" stroke="#2B1A66" stroke-width="3"/>
+  <text x="138" y="186" font-family="Manrope" font-weight="800" font-size="10" fill="#2B1A66">Leiden Centraal</text>
+  <circle cx="240" cy="80" r="8" fill="#C8F53C" stroke="#5B2EFF" stroke-width="3.5"/>
+  ${go ? `<circle cx="96" cy="232" r="16" fill="#50AF46" opacity=".25"/><circle cx="96" cy="232" r="9" fill="#50AF46" stroke="#fff" stroke-width="2.5"/><text x="109" y="236" font-family="Manrope" font-weight="800" font-size="11" fill="#1A1238" stroke="#fff" stroke-width="3" paint-order="stroke">2</text>` : ''}
+</svg>`;
+document.querySelectorAll('[data-map]').forEach(el => { el.innerHTML = MAP(el.dataset.map === 'go'); });
+</script>
+</body>
+</html>

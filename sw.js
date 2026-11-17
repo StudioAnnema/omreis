@@ -1,5 +1,5 @@
 // Omreis service worker: app-schil offline beschikbaar, live data altijd van het netwerk.
-const CACHE = 'omreis-v34';
+const CACHE = 'omreis-v35';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'mapstyles.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -21,6 +21,6 @@ self.addEventListener('fetch', e => {
   );
 });
 self.addEventListener('notificationclick', e => {
-  e.notification.close();
+  if (e.notification.tag !== 'omreis-reis') e.notification.close();   // de reismelding blijft staan
   e.waitUntil(self.clients.matchAll({ type: 'window' }).then(list => list.length ? list[0].focus() : self.clients.openWindow('./')));
 });
