@@ -5,7 +5,7 @@
   --accent:#5B2EFF; --accent-soft:#E9E2FF; --brand-deep:#2B1A66; --lime:#C8F53C; --lime-ink:#1A1238;
   --ok:#0B7A55; --ok-soft:#DDF5EA; --warn:#A65A00; --warn-soft:#FFEFD6; --bad:#D12C3F; --bad-soft:#FFE3E6;
   --r:14px; --r-lg:20px;
-  --font:"Manrope",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,system-ui,sans-serif;
   --shadow:0 1px 2px rgba(43,26,102,.05),0 8px 24px rgba(43,26,102,.09);
 }
 @media (prefers-color-scheme:dark){
@@ -550,3 +550,27 @@ body[data-view=plan] .maplibregl-ctrl-top-left{top:calc(226px + env(safe-area-in
 .lp-form input{flex:1;min-width:0;border:1px solid var(--line);border-radius:99px;padding:8px 12px;font:inherit;font-size:.88rem;background:var(--bg)}
 .lp-form .btn{padding:8px 14px}
 body[data-view=plan]:not(.map-focus) .map-btns{display:none}
+
+/* ---------- systeemletter (zoals de iPhone zelf) en rustiger formaten ---------- */
+body{font-weight:400;font-size:16px;letter-spacing:0}
+h1,h2,h3,.big,.dsay,.dbig,.dring b,.mid,.itin-time,.board-head h3,.dview .dk,.dk2,.bestcard .k{letter-spacing:-.01em}
+b,strong,.btn,.btn-primary,.chip,.state,.pill,.tag{font-weight:600}
+h1{font-size:1.45rem;font-weight:700}
+.dbig{font-size:2.5rem;font-weight:700;margin:2px 0 8px}
+.dring{width:136px;height:136px;margin:8px auto 12px}
+.dring::after{inset:10px}
+.dring b{font-size:2.4rem;font-weight:700}
+.dring span{font-size:.78rem;font-weight:500}
+.dsay{font-size:1.12rem;font-weight:600;line-height:1.35}
+.dsub{font-size:.88rem}
+.dk,.dk2{font-size:.7rem;font-weight:600;letter-spacing:.06em}
+.dnext{font-size:.9rem;font-weight:500}
+.dnext b{font-weight:600}
+.ridelink{font-weight:600;text-decoration-thickness:1.5px}
+.ridelink.ns b{font-weight:700}
+.livecard .v,.now .v,.alert strong,.hero-trip h1{font-weight:700}
+.bestcard .big b{font-size:1.8rem;font-weight:700}
+.chip.ns{font-weight:700}
+.leave{font-weight:500}
+.seat,.seat-in{font-size:.84rem}
+body[data-view=plan] .sheet{max-height:calc(100dvh - 300px - env(safe-area-inset-top))}

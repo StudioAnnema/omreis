@@ -2,7 +2,7 @@
 'use strict';
 const API = 'https://api.transitous.org/api';
 const REFRESH_MS = 30000;
-const VERSION = 38;
+const VERSION = 39;
 const PROXY = 'https://omreis-api.studioannema.workers.dev';   // eigen tussenlaag: echte gps-posities en NS-gegevens
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -710,7 +710,7 @@ const lineId = l => isRail(l.mode) ? trainAbbr(l) : (l.displayName || l.routeSho
 const hasWish = it => it.legs.some(l => isTransit(l) && lineId(l).toLowerCase() === String(state.wish).toLowerCase());
 function wishHtml() {
   const seen = new Map();
-  (state.allResults || []).forEach(it => it.legs.filter(isTransit).forEach(l => { const id = lineId(l); if (id && !seen.has(id)) seen.set(id, l); }));
+  (state.allResults || []).forEach(it => it.legs.filter(isTransit).forEach(l => { const id = lineId(l); if (id && id !== '?' && !seen.has(id)) seen.set(id, l); }));
   const chips = [...seen.entries()].slice(0, 10).map(([id, l]) => `<button class="lp${state.wish && state.wish.toLowerCase() === id.toLowerCase() ? ' on' : ''}" data-action="wish" data-l="${esc(id)}">${chip(l)}</button>`).join('');
   return `<div class="wish"><div class="wish-k">${state.wish ? `Alleen reizen met <b>${esc(state.wish)}</b> <button class="btn-text" data-action="wish" data-l="">alles tonen</button>` : 'Liever met een andere bus of trein?'}</div>
     <div class="lp-row">${chips}<form class="lp-form"><input name="l" placeholder="Lijn, bijv. 23" autocomplete="off" aria-label="Lijnnummer"><button class="btn" type="submit">Zoek</button></form></div></div>`;
