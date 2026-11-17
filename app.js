@@ -2,7 +2,7 @@
 'use strict';
 const API = 'https://api.transitous.org/api';
 const REFRESH_MS = 30000;
-const VERSION = 39;
+const VERSION = 40;
 const PROXY = 'https://omreis-api.studioannema.workers.dev';   // eigen tussenlaag: echte gps-posities en NS-gegevens
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -265,16 +265,16 @@ function drawMe() {
 let vehSegs = [], vehFetched = 0, netFilter = '';
 async function fetchVehicles() {
   if (!mapReady) return;
-  if (!state.vehOn || map.getZoom() < 10.5 || document.hidden) { vehSegs = []; if (!document.hidden) map.getSource('net').setData(fc([])); return paintVehicles(); }
+  if (!state.vehOn || map.getZoom() < 10.5 || document.hidden) { vehSegs = []; vehTrips = []; if (!document.hidden) map.getSource('net').setData(fc([])); return paintVehicles(); }
   const b = map.getBounds(), now = Date.now();
   try {
-    const d = await api('/v5/map/trips', { min: `${b.getNorth()},${b.getWest()}`, max: `${b.getSouth()},${b.getEast()}`, startTime: new Date(now).toISOString(), endTime: new Date(now + 20 * 60000).toISOString(), zoom: Math.round(map.getZoom()) });
+    const d = await api('/v5/map/trips', { min: `${b.getNorth()},${b.getWest()}`, max: `${b.getSouth()},${b.getEast()}`, startTime: new Date(now - 10 * 60000).toISOString(), endTime: new Date(now + 20 * 60000).toISOString(), zoom: Math.round(map.getZoom()) });
     vehSegs = d.map(sg => {
       const line = decodePolyline(sg.polyline, 5), cum = [0];
       for (let i = 1; i < line.length; i++) cum.push(cum[i - 1] + Math.hypot((line[i][0] - line[i - 1][0]) * 0.61, line[i][1] - line[i - 1][1]));
       return { id: sg.trips[0].tripId, name: sg.trips[0].displayName || '', mode: sg.mode, color: hex(sg.routeColor), dep: ms(sg.departure), arr: ms(sg.arrival), line, cum };
     });
-    vehFetched = now;
+    vehFetched = now; buildTrips();
     const seen = new Set(), net = [];
     d.forEach((sg, i) => {
       const nm = sg.trips[0].displayName || '';
@@ -286,12 +286,29 @@ async function fetchVehicles() {
   } catch { /* volgende poging bij verplaatsen */ }
   paintVehicles();
 }
-function along(sg, f) {
-  if (sg.line.length < 2) return sg.line[0];
-  const total = sg.cum[sg.cum.length - 1], target = total * Math.max(0, Math.min(1, f));
-  let i = 1; while (i < sg.cum.length - 1 && sg.cum[i] < target) i++;
-  const span = sg.cum[i] - sg.cum[i - 1] || 1, k = (target - sg.cum[i - 1]) / span;
-  return [sg.line[i - 1][0] + (sg.line[i][0] - sg.line[i - 1][0]) * k, sg.line[i - 1][1] + (sg.line[i][1] - sg.line[i - 1][1]) * k];
+/* De losse stukjes (halte tot halte) per rit aan elkaar: één route. Loopt een bus een halte voor of achter,
+   dan ligt zijn gps-punt nog steeds op die route en kunnen we hem vertrouwen. */
+let vehTrips = [];
+function buildTrips() {
+  const by = new Map();
+  vehSegs.forEach(sg => { if (sg.line.length > 1) (by.get(sg.id) || by.set(sg.id, []).get(sg.id)).push(sg); });
+  vehTrips = [...by.values()].map(ss => {
+    ss.sort((a, b) => a.dep - b.dep);
+    const line = [], cum = [], stops = [0], times = [ss[0].dep], parts = [];
+    ss.filter((s, i) => !i || s.dep !== ss[i - 1].dep).forEach(s => {
+      const last = line[line.length - 1];
+      const base = last ? cum[cum.length - 1] + Math.hypot((s.line[0][0] - last[0]) * 0.61, s.line[0][1] - last[1]) : 0;
+      s.line.forEach((p, j) => { line.push(p); cum.push(base + s.cum[j]); });
+      const end = base + s.cum[s.cum.length - 1];
+      parts.push({ d0: base, d1: end, dep: s.dep, arr: s.arr }); stops.push(end); times.push(s.arr);
+    });
+    return { id: ss[0].id, name: ss[0].name, mode: ss[0].mode, color: ss[0].color, line, cum, stops, times, parts, dep: ss[0].dep, arr: ss[ss.length - 1].arr };
+  });
+}
+function tripPoint(t, now) {
+  let d = t.parts[0].d0;
+  for (const p of t.parts) { if (now < p.dep) break; d = now <= p.arr ? p.d0 + (p.d1 - p.d0) * (now - p.dep) / (p.arr - p.dep || 1) : p.d1; }
+  return placeOnRoute(t.id, t, vehFix(t.id, t.mode, t.name), isRail(t.mode), { d, stops: t.stops, times: t.times });
 }
 const TRAIN_ABBR = [[/intercity direct|^icd/i, 'ICD'], [/intercity|^ic\b/i, 'IC'], [/sprinter|^spr/i, 'SPR'], [/stoptrein|^st\b/i, 'ST'], [/sneltrein/i, 'SNEL'], [/eurostar|thalys/i, 'EST'], [/^ice/i, 'ICE'], [/nightjet/i, 'NJ'], [/^re\b|regional/i, 'RE'], [/^rb\b/i, 'RB'], [/stopbus|bus/i, 'BUS']];
 function shortName(name, mode) {
@@ -446,7 +463,7 @@ async function focusVehicle(id) {
 }
 function flyToFocus() {
   const f = state.focus; if (!mapReady || !f || !f.leg) return;
-  const l = f.leg, p = vehGps(l.tripId, l.mode, l.tripShortName || l.displayName) || ridePosition(l, Date.now()) || (l.full && [l.full[0].lon, l.full[0].lat]);
+  const l = f.leg, p = legPoint(l, Date.now()) || (l.full && [l.full[0].lon, l.full[0].lat]);
   if (p) map.easeTo({ center: p, zoom: Math.max(map.getZoom(), 14.5), pitch: 0, bearing: 0, offset: [0, -80], duration: 900 });
 }
 function renderFocus() {
@@ -518,8 +535,63 @@ function disruptionsHtml() {
   if (!nsDis || !nsDis.length) return '';
   return `<details class="whole dis"><summary>${svg('alert')}Storingen op het spoor (${nsDis.length})</summary>${nsDis.map(x => `<div class="dis-item"><strong>${esc(x.title)}</strong><p>${esc(x.text)}</p>${x.until ? `<small>${esc(x.until)}</small>` : ''}</div>`).join('')}</details>`;
 }
-const vehGps = (id, mode, label) => isRail(mode) ? (nsTrains.get(trainNo(label)) || null) : gpsFor(id);
-const gpsFor = id => { const v = gpsVeh.get(tripTail(id)); return v ? [v.lo, v.la] : null; };
+// De laatste echte positie van een voertuig, met het moment waarop die gemeten is.
+function vehFix(id, mode, label) {
+  if (isRail(mode)) { const p = nsTrains.get(trainNo(label)); return p ? { p, ts: nsFetched } : null; }
+  const v = gpsVeh.get(tripTail(id)); return v ? { p: [v.lo, v.la], ts: v.ts * 1000 } : null;
+}
+const vehGps = (id, mode, label) => { const f = vehFix(id, mode, label); return f ? f.p : null; };
+/* Een gps-punt telt alleen als het op de route ligt, het voertuig niet achteruit rijdt en niet onmogelijk hard gaat.
+   Dan zetten we het precies op de weg of het spoor. Tussen twee metingen schuift het in het tempo van de
+   dienstregeling verder, maar nooit voorbij de volgende halte; zonder bruikbare meting geldt de dienstregeling. */
+const M_PER = 111000;   // routelijnen zijn in graden: ongeveer 111 km per eenheid
+const routeTrack = new Map();
+function placeOnRoute(id, path, fix, rail, sc) {
+  const now = Date.now(); let tr = routeTrack.get(id);
+  if (!tr || tr.path !== path) { tr = { path, back: 0, jump: 0, shown: tr && tr.path === path ? tr.shown : null }; routeTrack.set(id, tr); }
+  if (fix && fix.ts !== tr.fts) {
+    tr.fts = fix.ts;
+    const { d, off } = alongDist(path, fix.p), vmax = (rail ? 70 : 35) / M_PER / 1000;
+    let ok = off < (rail ? 400 : 250);                                   // naast de route: niet te vertrouwen
+    if (ok && tr.gd != null && fix.ts - tr.gts < 240000) {
+      const dt = Math.max(1000, fix.ts - tr.gts);
+      if (d < tr.gd - 250 / M_PER) ok = ++tr.back >= 3;                 // achteruit: ruis, tenzij het zo blijft
+      else if (d - tr.gd > vmax * dt + 300 / M_PER) ok = ++tr.jump >= 3; // sneller dan kan: een uitschieter
+    }
+    if (ok) { tr.gd = d; tr.gts = fix.ts; tr.back = tr.jump = 0; }
+  }
+  let target = null;
+  if (tr.gd != null && now - tr.gts < 240000) {
+    const k = Math.max(0, sc.stops.findIndex(x => x > tr.gd + 30 / M_PER));
+    const next = k > 0 ? sc.stops[k] : path.cum[path.cum.length - 1];
+    const v = k > 0 ? (sc.stops[k] - sc.stops[k - 1]) / Math.max(60000, sc.times[k] - sc.times[k - 1]) : 0;
+    target = Math.min(next, tr.gd + 0.7 * v * Math.min(now - tr.gts, 45000));   // voorzichtig: bussen staan ook stil
+  } else target = sc.d;
+  if (tr.shown == null || Math.abs(target - tr.shown) * M_PER > 3000) tr.shown = target;
+  else tr.shown += (target - tr.shown) * Math.min(1, (now - (tr.at || now)) / 1500);
+  tr.at = now;
+  return pointAt(path, tr.shown);
+}
+// Waar het voertuig volgens de dienstregeling (met bekende vertraging) nu langs de route is.
+function schedAlong(leg, now, path) {
+  const st = leg.full || [leg.from, ...(leg.intermediateStops || []), leg.to];
+  if (!path || path.at.length !== st.length) return null;
+  const times = st.map(s => ms(s.departure || s.arrival));
+  if (now > ms(st[st.length - 1].arrival || st[st.length - 1].departure) + 300000) return null;   // rit is voorbij
+  let d = path.at[st.length - 1];
+  for (let i = 0; i < st.length - 1; i++) {
+    const t0 = times[i], t1 = ms(st[i + 1].arrival || st[i + 1].departure);
+    if (now < t0) { d = path.at[i]; break; }
+    if (now <= t1) { d = path.at[i] + (path.at[i + 1] - path.at[i]) * (now - t0) / (t1 - t0 || 1); break; }
+  }
+  return { d, stops: path.at, times };
+}
+function legPoint(l, now) {
+  const fix = vehFix(l.tripId, l.mode, l.tripShortName || l.displayName), path = legPath(l), sc = schedAlong(l, now, path);
+  if (sc) return placeOnRoute(l.tripId, path, fix, isRail(l.mode), sc);
+  const p = (fix && fix.p) || ridePosition(l, now);
+  return p ? glide(l.tripId, p) : null;
+}
 // laat een voertuig naar zijn nieuwe positie glijden in plaats van te verspringen
 function glide(id, target) {
   const cur = shownPos.get(id);
@@ -529,7 +601,7 @@ function glide(id, target) {
 }
 function paintVehicles() {
   if (!mapReady) return;
-  const now = Date.now(), best = new Map();
+  const now = Date.now();
   const selId = state.ride?.leg?.tripId || state.focus?.tripId;
   // met een gekozen reis: alleen jouw eigen bus en trein, tenzij je alles aanzet
   const itin = state.ride ? null : state.trip ? state.trip.itin : (!state.stopsOpen && state.results[state.sel]) || null;
@@ -539,29 +611,24 @@ function paintVehicles() {
   if (map.getLayer('net') && (map.getLayoutProperty('net', 'visibility') === 'none') !== !!only) map.setLayoutProperty('net', 'visibility', only ? 'none' : 'visible');
   const lf = only || state.ride ? null : state.lineFilter;
   if (map.getLayer('net') && netFilter !== (lf ? lf.short : '')) { netFilter = lf ? lf.short : ''; map.setFilter('net', lf ? ['==', ['get', 'name'], lf.short] : null); }
-  vehSegs.forEach(sg => {
-    if (sg.id === selId || !sg.line.length || tracked.has(sg.id) || (only && !only.has(sg.id)) || (lf && sg.name !== lf.short)) return;
-    const cur = best.get(sg.id), active = sg.dep <= now && now <= sg.arr;
-    const score = active ? 0 : now < sg.dep ? sg.dep - now : now - sg.arr + 1e9;
-    if (!cur || score < cur.score) best.set(sg.id, { sg, score });
-  });
   const feats = [];
-  best.forEach(({ sg, score }) => {
-    if (score > 120000) return;   // rijdt nu, of vertrekt binnen twee minuten
-    const f = (now - sg.dep) / (sg.arr - sg.dep || 1);
-    feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: glide(sg.id, vehGps(sg.id, sg.mode, sg.name) || along(sg, f)) }, properties: { tripId: sg.id, name: shortName(sg.name, sg.mode), color: sg.color || (isRail(sg.mode) ? DEEP : BRAND), sel: false } });
+  vehTrips.forEach(t => {
+    if (t.id === selId || tracked.has(t.id) || (only && !only.has(t.id)) || (lf && t.name !== lf.short)) return;
+    const fix = vehFix(t.id, t.mode, t.name), fresh = fix && now - fix.ts < 240000;
+    if (now < t.dep - 120000 || now > t.arr + (fresh ? 300000 : 0)) return;   // rijdt nu, of vertrekt binnen twee minuten
+    feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: tripPoint(t, now) }, properties: { tripId: t.id, name: shortName(t.name, t.mode), color: t.color || (isRail(t.mode) ? DEEP : BRAND), sel: false } });
   });
   mine.filter(l => l.full && !l.cancelled).forEach(l => {
-    const p0 = ridePosition(l, now), g = vehGps(l.tripId, l.mode, l.tripShortName || l.displayName), p = g || p0 ? glide(l.tripId, g || p0) : null;
+    const p = legPoint(l, now);
     if (p && now > ms(l.full[0].departure || l.full[0].arrival) - 120000) feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: { tripId: l.tripId, name: shortName(l.displayName || l.routeShortName || '', l.mode), color: hex(l.routeColor) || (isRail(l.mode) ? DEEP : BRAND), sel: !!only || l.tripId === state.focus?.tripId } });
   });
   const fl = state.focus && state.focus.leg;
   if (fl && fl.full && !mine.some(m => m.tripId === fl.tripId && m.full) && state.ride?.leg?.tripId !== fl.tripId) {
-    const p0 = ridePosition(fl, now), g = vehGps(fl.tripId, fl.mode, fl.tripShortName || fl.displayName), p = g || p0 ? glide(fl.tripId, g || p0) : null;
+    const p = legPoint(fl, now);
     if (p) feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: { tripId: fl.tripId, name: shortName(fl.displayName || fl.routeShortName || '', fl.mode), color: hex(fl.routeColor) || (isRail(fl.mode) ? DEEP : BRAND), sel: true } });
   }
   if (state.ride?.leg) {
-    const l = state.ride.leg, p0 = ridePosition(l, now), g = vehGps(l.tripId, l.mode, l.tripShortName || l.displayName), p = g || p0 ? glide(l.tripId, g || p0) : null;
+    const l = state.ride.leg, p = legPoint(l, now);
     if (p) feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: { tripId: l.tripId, name: shortName(l.displayName || l.routeShortName || '', l.mode), color: hex(l.routeColor) || (isRail(l.mode) ? DEEP : BRAND), sel: true } });
   }
   map.getSource('veh').setData(fc(feats));
@@ -941,8 +1008,10 @@ function evaluate() {
     if (leg.cancelled) P.push({ sev: 'bad', leg: i, key: `c${i}`, text: `${legName(leg)} richting ${leg.headsign || leg.to.name} van ${hhmm(leg.scheduledStartTime || leg.startTime)} rijdt niet.` });
   });
   if (trip.missed != null && L[trip.missed] && ms(L[trip.missed].endTime) > now && !L[trip.missed].cancelled) {
-    const m = L[trip.missed];
-    P.push({ sev: 'bad', leg: trip.missed, key: `x${trip.missed}`, text: `Het lijkt erop dat je ${theRide(m)} van ${hhmm(m.startTime)} niet hebt gehaald.` });
+    const m = L[trip.missed], sw = (trip.seen && trip.seen[trip.missed]) || {};
+    P.push({ sev: 'bad', leg: trip.missed, key: `x${trip.missed}`, text: sw.why === 'laat'
+      ? `Je haalt ${theRide(m)} van ${hhmm(eStart(m))} waarschijnlijk niet: je bent nog ${sw.dist > 950 ? (sw.dist / 1000).toFixed(1).replace('.', ',') + ' km' : Math.round(sw.dist / 50) * 50 + ' m'} van de halte en komt er lopend zo'n ${mins(sw.short) || 1} min te laat.`
+      : `Het lijkt erop dat je ${theRide(m)} van ${hhmm(eStart(m))} niet hebt gehaald.` });
   } else if (trip.missed != null) trip.missed = null;
   L.forEach((leg, i) => {
     if (!isTransit(leg) || leg.cancelled || eEnd(leg) < now || (leg.extra || 0) < 120000) return;
@@ -1012,26 +1081,71 @@ const eEnd = l => ms(l.endTime) + (l.extra || 0);
 function tripEnd(itin) { const lt = [...itin.legs].reverse().find(isTransit); return ms(itin.endTime) + ((lt && lt.extra) || 0); }
 
 /* Meereizen: aan je gps zien of je echt in je bus of trein zit, of dat je hem gemist hebt. */
+/* Drie manieren, van sterk naar zwak:
+   1. vóór vertrek: kun je de halte nog lopend halen?
+   2. met de echte positie van het voertuig: is het al voorbij je halte, en ben jij er niet bij?
+   3. zonder die positie: ben je sneller dan lopen en op de route, of sta je na vertrek nog bij de halte? */
 function checkProgress() {
   const trip = state.trip;
-  if (!trip || !trip.started || !state.gps || Date.now() - state.gps.at > 45000) return;
-  const L = trip.itin.legs, now = Date.now(), me = state.gps;
+  if (!trip || !trip.started || !state.gps || Date.now() - state.gps.at > 60000) return;
+  const L = trip.itin.legs, now = Date.now(), me = state.gps, spd = me.spd || 0, acc = Math.min(me.acc || 30, 150);
   trip.seen = trip.seen || {};
-  const i = L.findIndex((l, k) => isTransit(l) && !l.cancelled && ms(l.endTime) > now && !(trip.seen[k] && trip.seen[k].on));
+  const i = L.findIndex((l, k) => isTransit(l) && !l.cancelled && eEnd(l) > now && !(trip.seen[k] && trip.seen[k].on));
   if (i < 0) return;
-  const leg = L[i], s = trip.seen[i] || (trip.seen[i] = {}), start = eStart(leg);
-  if (now < start + 45000 || !leg.legGeometry || !leg.legGeometry.points) return;
-  const dStop = distM(me, leg.from), dRoute = distToLine(decodePolyline(leg.legGeometry.points, leg.legGeometry.precision), me);
-  if (dStop > 150 && dRoute < 150) {                       // weg van de halte en óp de route: je zit erin
-    s.on = true; if (trip.missed === i) trip.missed = null;
-    store.set('omreis.trip', trip);
-    notify(`Je zit in ${theRide(leg)}${plain(toward(leg))}.`, 'Ingestapt', 'omreis-sneller');
-    evaluate(); render();
-  } else if (!s.missed && now > start + 150000 && (dStop < 200 || dRoute > 400)) {   // ruim na vertrek nog bij de halte, of ergens anders
-    s.missed = true; trip.missed = i;
-    store.set('omreis.trip', trip);
-    evaluate(); render();
+  const leg = L[i], s = trip.seen[i] || (trip.seen[i] = {}), start = eStart(leg), dStop = distM(me, leg.from);
+  const save = () => { store.set('omreis.trip', trip); evaluate(); render(); };
+  const missed = (why, extra) => {
+    if (s.missed && s.why === why) { Object.assign(s, extra); return; }
+    if (why !== 'laat' && (s.hint = (s.hint || 0) + 1) < 2) return;   // twee keer achter elkaar zien, dan pas zeker
+    Object.assign(s, { missed: true, why, hint: 0 }, extra); trip.missed = i; save();
+  };
+  const board = () => {
+    Object.assign(s, { on: true, missed: false, hint: 0 }); if (trip.missed === i) trip.missed = null;
+    notify(`Je zit in ${theRide(leg)}${plain(toward(leg))}.`, 'Ingestapt', 'omreis-sneller'); save();
+  };
+  // nog in een eerdere bus of trein (of net uitgestapt): dan niets concluderen over deze
+  const before = L.slice(0, i).reverse().find(isTransit);
+  const busyBefore = before && eEnd(before) > now - 60000;
+
+  // 1. Vóór vertrek: lopend (1,3 m/s, met 30% omweg) haal je het niet meer.
+  if (now < start) {
+    if (busyBefore || spd > 5) return;
+    const walk = dStop * 1000, need = now + walk - start;
+    if (start - now < 15 * 60000 && dStop > 150 && need > 60000) missed('laat', { short: need, dist: dStop });
+    else if (s.missed && s.why === 'laat' && need < 0) { s.missed = false; trip.missed = null; save(); }
+    return;
   }
+  if (s.missed && s.why === 'laat') s.why = 'weg';
+
+  // 2. De echte positie van het voertuig.
+  const fix = vehFix(leg.tripId, leg.mode, leg.tripShortName || leg.displayName), path = legPath(leg);
+  const st = leg.full || [leg.from, ...(leg.intermediateStops || []), leg.to];
+  if (fix && path && path.at.length === st.length && now - fix.ts < 180000) {
+    const { d, off } = alongDist(path, fix.p), mine = path.at[leg.full ? (leg.fullFrom || 0) : 0];
+    const past = (d - mine) * M_PER, dVeh = distM(me, { lon: fix.p[0], lat: fix.p[1] });
+    const slack = acc + Math.min(now - fix.ts, 90000) / 1000 * (isRail(leg.mode) ? 25 : 12);   // oude meting: voertuig is al verder
+    if (off < 300) {
+      if (past > 80 && dStop > 120 && dVeh < 120 + slack) return board();
+      if (past > 300 + slack && dVeh > 300 + slack) return missed('weg');
+      if (past < 0) { s.hint = 0; return; }          // nog niet bij je halte: gewoon wachten
+    }
+  }
+
+  // 3. Zonder (bruikbare) positie van het voertuig.
+  if (now < start + 45000 || !leg.legGeometry || !leg.legGeometry.points || busyBefore) return;
+  const dRoute = distToLine(decodePolyline(leg.legGeometry.points, leg.legGeometry.precision), me);
+  const walkable = 150 + (now - start) / 1000 * 2;   // zo ver kom je lopend sinds vertrek
+  if (dRoute < 120 + acc / 2 && dStop > 150 && (spd > 4 || dStop > walkable)) return board();
+  if (now > start + 150000 && ((dStop < 200 && spd < 2.5) || dRoute > 500)) return missed('weg');
+  s.hint = 0;
+}
+/* gps bijwerken, met snelheid (van de telefoon, of uit twee metingen) */
+function setGps(p) {
+  const o = state.gps, n = { lat: p.coords.latitude, lon: p.coords.longitude, at: Date.now(), acc: p.coords.accuracy || 30 };
+  let v = p.coords.speed;
+  if (!(v >= 0) && o && n.at - o.at > 3000 && n.at - o.at < 60000) v = Math.max(0, distM(o, n) - n.acc / 2) / ((n.at - o.at) / 1000);
+  n.spd = v >= 0 ? v : 0;
+  state.gps = n;
 }
 
 /* Pop-up in de app, en een systeemmelding als de app op de achtergrond staat. */
@@ -1426,7 +1540,7 @@ let gpsWatch = null;
 function watchGps() {
   if (gpsWatch != null || !navigator.geolocation) return;
   gpsWatch = navigator.geolocation.watchPosition(
-    p => { state.gps = { lat: p.coords.latitude, lon: p.coords.longitude, at: Date.now() }; drawMe(); },
+    p => { setGps(p); drawMe(); },
     () => {}, { enableHighAccuracy: true, maximumAge: 20000, timeout: 20000 });
 }
 /* Eerst snel en grof (werkt ook binnen), daarna pas nauwkeurig; geweigerde toestemming meteen doorgeven. */
@@ -1653,13 +1767,19 @@ document.addEventListener('toggle', e => {
   if (e.target.classList.contains('others')) state.othersOpen = e.target.open;
   if (e.target.classList.contains('earlier') && state.ride) state.ride.earlierOpen = e.target.open;
 }, true);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(true); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  tick(true);
+  // terug in de app: meteen een verse locatie, want op de achtergrond staat de gps van een iPhone stil
+  if (state.trip && state.trip.started && navigator.geolocation) navigator.geolocation.getCurrentPosition(p => { setGps(p); drawMe(); checkProgress(); }, () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
+});
 
 let lastRefresh = 0;
 function tick(force) {
   if (!document.hidden && state.ride && state.ride.leg) { const sc = $('#sheet-body').scrollTop; renderRide(); $('#sheet-body').scrollTop = sc; }
-  if (document.hidden || state.stopsOpen || state.ride || !state.trip) return;
-  checkProgress(); anticipate(); evaluate();
+  if (document.hidden || !state.trip) return;
+  checkProgress(); anticipate(); evaluate();   // ook als je even een rit of halte bekijkt
+  if (state.stopsOpen || state.ride) return;
   const li = state.trip.started ? leaveInfo(state.trip.itin) : null;   // op tijd een seintje: nu gaan lopen
   if (li && state.trip.leaveFor !== li.leg.tripId && Date.now() >= li.at - 30000 && Date.now() < eStart(li.leg)) {
     state.trip.leaveFor = li.leg.tripId;
