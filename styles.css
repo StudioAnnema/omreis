@@ -589,3 +589,15 @@ body[data-view=plan] .sheet{max-height:calc(100dvh - 300px - env(safe-area-inset
 #vehcard .between .row{min-width:0;flex:1}
 #vehcard .between strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dview ~ .whole:not([open]) summary{display:none}   /* de knop 'Hele reis' opent hem al */
+
+/* v42: de echte NS-tekening van de trein */
+.vtrain.ns{height:auto;padding-bottom:3px}
+.vtrain.ns .vt-train{position:static;height:auto;gap:0;align-items:flex-end;min-width:0}
+.vtrain.ns img{display:block;min-width:0;width:100%;height:auto}
+.vtrain.ns{display:block;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;border-bottom:4px solid #D9D3EA;padding-bottom:2px}
+.vtrain.ns::-webkit-scrollbar{display:none}
+.vtrain.ns .vt-train{display:flex;width:max-content}
+.vtrain.ns img{height:30px;width:auto;max-width:none;flex:none}
+#vehcard{box-sizing:border-box;max-width:calc(100vw - 24px);min-width:0}
+#vehcard > *{min-width:0;max-width:100%}
+.vtrain.ns{width:100%;max-width:100%;box-sizing:border-box}

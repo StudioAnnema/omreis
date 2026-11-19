@@ -2,7 +2,7 @@
 'use strict';
 const API = 'https://api.transitous.org/api';
 const REFRESH_MS = 30000;
-const VERSION = 41;
+const VERSION = 42;
 const PROXY = 'https://omreis-api.studioannema.workers.dev';   // eigen tussenlaag: echte gps-posities en NS-gegevens
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -415,7 +415,7 @@ function trainInfo(leg) {
   nsInfo.set(n, null);
   ns(`/virtual-train-api/api/v1/trein/${n}?features=zitplaats`).then(d => {
     const parts = d.materieeldelen || [];
-    nsInfo.set(n, d.lengte ? { bakken: d.lengte, meters: d.lengteInMeters, type: [...new Set(parts.map(m => (m.type || '').split(' ')[0]))].join(' + '), fac: [...new Set(parts.flatMap(m => m.faciliteiten || []))], kort: !!d.ingekort, imgs: parts.map(m => m.afbeelding).filter(u => /^https:\/\//.test(u || '')), sets: parts.map(m => (m.bakken || []).length || 1) } : false);
+    nsInfo.set(n, d.lengte ? { bakken: d.lengte, meters: d.lengteInMeters, type: [...new Set(parts.map(m => (m.type || '').split(' ')[0]))].join(' + '), fac: [...new Set(parts.flatMap(m => m.faciliteiten || []))], kort: !!d.ingekort, imgs: parts.map(m => m.afbeelding).filter(u => /^https:\/\//.test(u || '')), pics: parts.filter(m => /^https:\/\/[\w.-]+\.ns-mlab\.nl\//.test(m.afbeelding || '')).map(m => ({ src: m.afbeelding, n: (m.bakken || []).length || 1 })), sets: parts.map(m => (m.bakken || []).length || 1) } : false);
     render();
   }).catch(() => nsInfo.set(n, false));
   return null;
@@ -424,6 +424,8 @@ function trainInfo(leg) {
 function trainCars(leg, big) {
   const i = trainInfo(leg); if (!i) return '';
   const n = Math.max(1, i.bakken), w = Math.min(100, n / 12 * 100);   // een perron past zo'n 12 bakken
+  // de echte NS-tekening van elk treindeel, aan elkaar gekoppeld; anders een eigen tekening
+  if (big && i.pics && i.pics.length) return `<span class="vtrain ns" role="img" aria-label="Trein van ${n} bakken"><span class="vt-train">${i.pics.map(p => `<img src="${esc(p.src)}" alt="">`).join('')}</span></span>`;
   return `<span class="vtrain${big ? ' big' : ''}" role="img" aria-label="Trein van ${n} bakken"><span class="vt-train" style="width:${w.toFixed(1)}%">${'<i></i>'.repeat(n)}</span></span>`;
 }
 // Een bus of trein in een zin, aan te tikken: dan zie je hem op de kaart.
@@ -653,6 +655,11 @@ let lastPaint = 0;
   requestAnimationFrame(loop);
 })(0);
 setInterval(() => { if (state.vehOn && Date.now() - vehFetched > 90000) fetchVehicles(); }, 15000);
+// elke minuut: alle voertuigen in één keer naar hun echte plek (verder staan ze stil, dus niets verspringt heen en weer)
+setInterval(() => {
+  if (document.hidden) return;
+  Promise.allSettled([fetchGps(), fetchTrains()]).then(() => { posEpoch++; paintVehicles(); if (state.focus) renderFocus(); });
+}, 60000);
 setInterval(() => { if (Date.now() - gpsFetched > 18000) fetchGps(); if (Date.now() - nsFetched > 15000 && (state.vehOn || state.trip || state.ride || state.focus)) fetchTrains(); }, 5000);
 
 /* ---------- zoeken met suggesties ---------- */
@@ -1411,9 +1418,9 @@ function alertsHtml(alerts) {
 }
 
 /* ---------- één rit bekijken (vanuit vertrektijden of een voertuig op de kaart) ---------- */
-async function openRide(tripId) {
-  state.ride = { tripId, loading: true };
-  setSheet('half'); render();
+async function openRide(tripId, keep) {
+  state.ride = { tripId, loading: !keep, leg: keep && state.ride ? state.ride.leg : undefined };
+  if (!keep) setSheet('half'); render();
   try {
     const t = await api('/v5/trip', { tripId });
     if (state.ride?.tripId !== tripId) return;
@@ -1635,9 +1642,11 @@ document.addEventListener('click', e => {
     case 'boardmode': state.board.mode = a.dataset.m; renderBoard(); break;
     case 'refreshall':
       a.classList.add('spin'); setTimeout(() => a.classList.remove('spin'), 900);
-      if (state.ride) openRide(state.ride.tripId);
+      // verversen laat het paneel zoals het is: zat het omlaag, dan blijft de kaart in beeld
+      if (state.ride) openRide(state.ride.tripId, true);
       else if (state.stopsOpen) { if (state.board) loadBoard(state.board.stop); }
       else if (state.trip) refreshTrip();
+      else if (state.results.length) searchPlan({ silent: true });
       else searchPlan();
       // alle voertuigen in één keer naar hun echte plek, met verse posities
       Promise.allSettled([fetchVehicles(), fetchGps(), fetchTrains()]).then(() => { posEpoch++; paintVehicles(); if (state.focus) { renderFocus(); flyToFocus(); } });
