@@ -2,7 +2,7 @@
 'use strict';
 const API = 'https://api.transitous.org/api';
 const REFRESH_MS = 30000;
-const VERSION = 42;
+const VERSION = 43;
 const PROXY = 'https://omreis-api.studioannema.workers.dev';   // eigen tussenlaag: echte gps-posities en NS-gegevens
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -991,7 +991,7 @@ async function refreshTrip() {
   store.set('omreis.trip', trip);
   anticipate(); evaluate(); render();
   changes.forEach(c => notify(c, 'Perronwijziging', 'omreis-perron'));
-  if (trip.started && !state.ride && !document.body.classList.contains('map-focus')) liveCamera();
+  if (trip.started && !state.ride && !state.dpage && !document.body.classList.contains('map-focus')) liveCamera();   // niet wegspringen van een stap die je bekijkt
   liveNote();
   if (trip.started && Date.now() - lastBest > 55000) checkBest();
 }
@@ -1248,7 +1248,7 @@ function buildSteps(L, nm) {
       if (prevT && nextT && leg.duration < 60) return;   // zelfde perron: geen aparte loopstap
       const where = nextT && nextT.from.track ? `perron ${esc(nextT.from.track)}` : nm(leg.to);
       steps.push({
-        kind: 'walk', icon: 'walk', start: leg.startTime, end: leg.endTime, time: leg.startTime,
+        kind: 'walk', icon: 'walk', start: leg.startTime, end: leg.endTime, time: leg.startTime, at: [leg.to.lon, leg.to.lat],
         title: prevT && nextT ? `Loop naar ${where} voor ${esc(theRide(nextT))}` : `Loop naar ${nm(leg.to)}`,
         sub: `${dur(leg.duration)} lopen${leg.distance ? ` · ${Math.round(leg.distance / 10) * 10} m` : ''}`
       });
@@ -1258,13 +1258,13 @@ function buildSteps(L, nm) {
     const gap = prevT ? mins(ms(leg.startTime) - ms(prevT.endTime)) : null;
     const gapTxt = gap == null ? '' : gap < 0 ? '<span class="tag bad">overstap niet haalbaar</span>' : `<span class="tag ${gap < 3 ? 'warn' : ''}">${gap} min overstaptijd</span>`;
     steps.push({
-      kind: 'in', tripId: leg.tripId, leg, icon: MODE_IC[leg.mode] || (isRail(leg.mode) ? 'train' : 'bus'), start: lastEnd, end: S(leg), time: S(leg), sched: leg.scheduledStartTime, cancelled: leg.cancelled,
+      kind: 'in', at: [leg.from.lon, leg.from.lat], tripId: leg.tripId, leg, icon: MODE_IC[leg.mode] || (isRail(leg.mode) ? 'train' : 'bus'), start: lastEnd, end: S(leg), time: S(leg), sched: leg.scheduledStartTime, cancelled: leg.cancelled,
       title: `${prevT ? `Overstappen op ${esc(theRide(leg))}` : esc(rideName(leg, true))}${toward(leg)}`,
       sub: `Vanaf ${nm(leg.from)}${leg.from.track ? ` · <strong>perron ${esc(leg.from.track)}</strong>` : ''}${gapTxt}`, chip: chip(leg)
     });
     const mid = leg.intermediateStops || [];
     steps.push({
-      kind: 'out', tripId: leg.tripId, leg, icon: 'pin', start: S(leg), end: E(leg), time: E(leg), sched: leg.scheduledEndTime, cancelled: leg.cancelled, mid,
+      kind: 'out', at: [leg.to.lon, leg.to.lat], tripId: leg.tripId, leg, icon: 'pin', start: S(leg), end: E(leg), time: E(leg), sched: leg.scheduledEndTime, cancelled: leg.cancelled, mid,
       title: `Uitstappen op ${nm(leg.to)}`,
       sub: `${mid.length ? `na ${mid.length} ${mid.length === 1 ? 'tussenhalte' : 'tussenhaltes'}` : 'dit is de eerstvolgende halte'}${leg.to.track ? ` · perron ${esc(leg.to.track)}` : ''}${nextT ? ` · daarna verder met ${esc(theRide(nextT))}` : ''}`
     });
@@ -1300,6 +1300,7 @@ function nowCard(L, now) {
 }
 
 function renderTrack() {
+  if (state.swiping) return;   // niet onder je vinger hertekenen
   const el = $('#view-track'), trip = state.trip;
   if (!trip) { el.innerHTML = ''; return; }
   const L = trip.itin.legs, now = Date.now();
@@ -1379,14 +1380,20 @@ function renderTrack() {
     const nx = preLeave ? steps.find(s => s.kind === 'in') : curStep >= 0 ? steps[curStep + 1] : null;
     const next = !nx ? '' : nx.kind === 'in' ? `${rideLink(nx.leg, true)} om ${hhmm(nx.time)}${nx.leg.from.track ? ` · perron ${esc(nx.leg.from.track)}` : ''}` : nx.title;
     const big = left >= 60 ? hhmm(stEnd) : left;
+    // veegbare kaarten: nu, en daarna elke volgende stap; de kaart op de achtergrond gaat mee
+    const later = steps.map((s, k) => ({ s, k })).filter(x => curStep >= 0 && x.k > curStep);
+    state.pages = [null, ...later.map(({ s }) => ({ at: s.at, leg: s.kind === 'in' ? s.leg : null }))];
+    const pageHtml = ({ s, k }) => `<div class="dpage"><div class="dk">Stap ${k + 1} · <span class="num">${hhmm(s.time)}</span></div>
+        <div class="pg-ic">${svg(s.icon)}</div><div class="dsay">${s.title}</div><div class="dsub">${s.sub}</div>${s.kind === 'in' && isRail(s.leg.mode) ? trainFacts(s.leg) : ''}</div>`;
     header = `<div class="dview">
       <div class="dtop"><span>Naar <b>${esc(toLabel || nice(destOf(trip.itin).name))}</b> · aankomst <b class="num">${hhmm(end)}</b>${late >= 1 ? ` <span class="late">+${late}</span>` : ''}</span><span class="state ${sev}"><i></i>${stateTxt}</span></div>
-      <div class="dk">${left >= 60 ? (preLeave ? 'Ga lopen om' : st.kind === 'in' ? 'Instappen om' : 'Om') : lbl}</div>
-      <div class="dring" style="--p:${(prog * 100).toFixed(1)}%"><div>${st ? `<b class="num">${big}</b><span>${left >= 60 ? '' : 'min'}</span>` : svg('check')}</div></div>
-      <div class="dsay">${say}</div>
-      <div class="dsub">${sub.filter(Boolean).join(' · ')}</div>
-      ${next ? `<div class="dnext"><b>Daarna</b>${next}</div>` : ''}
-      <div class="dbtns"><button class="btn" data-action="wholetrip">Hele reis</button><button class="btn" data-action="showmap">Kaart</button></div>
+      <div class="dpager"><div class="dpage">
+        <div class="dk">${left >= 60 ? (preLeave ? 'Ga lopen om' : st.kind === 'in' ? 'Instappen om' : 'Om') : lbl}</div>
+        <div class="dring" style="--p:${(prog * 100).toFixed(1)}%"><div>${st ? `<b class="num">${big}</b><span>${left >= 60 ? '' : 'min'}</span>` : svg('check')}</div></div>
+        <div class="dsay">${say}</div>
+        <div class="dsub">${sub.filter(Boolean).join(' · ')}</div>
+      </div>${later.map(pageHtml).join('')}</div>
+      ${later.length ? `<div class="ddots" aria-hidden="true">${state.pages.map((_, i) => `<i class="${i === (state.dpage || 0) ? 'on' : ''}"></i>`).join('')}</div>` : ''}
     </div>`;
   } else {
     header = `    <div class="hero-trip"><div class="trip-nav"><button class="icon-btn" data-action="stop" aria-label="${trip.started ? 'Reis stoppen' : 'Terug naar opties'}">${svg('back')}</button><span class="eyebrow">${trip.started ? 'Onderweg naar' : 'Reis naar'}</span></div>
@@ -1397,8 +1404,38 @@ function renderTrack() {
   el.innerHTML = `
     ${live && bad ? alert + alts : ''}${header}
     ${live && bad ? '' : alert}${live ? '' : hero}${best}${live && bad ? '' : alts}${L.map(l => alertsHtml(l.alerts)).join('')}
-    ${trip.started ? `<details class="whole"><summary>Hele reis bekijken</summary><ol class="steps">${stepsHtml}</ol></details>` : `<h2>Je reis</h2><ol class="steps">${stepsHtml}</ol>`}
+    ${trip.started ? '' : `<h2>Je reis</h2><ol class="steps">${stepsHtml}</ol>`}
     <div class="updated">Bijgewerkt om ${hhmm(trip.updated)}${navigator.onLine ? '' : ' · offline'}</div>`;
+  setupPager(el);
+}
+/* Vegen door de stappen: bolletjes bijwerken en de kaart naar die plek (bij instappen: naar het voertuig zelf). */
+function setupPager(el) {
+  const pg = el.querySelector('.dpager'); if (!pg) { state.dpage = 0; return; }
+  const n = pg.children.length;
+  if ((state.dpage || 0) >= n) state.dpage = 0;
+  pg.scrollLeft = (state.dpage || 0) * pg.clientWidth;
+  let t;
+  const hold = () => { state.swiping = true; };
+  pg.addEventListener('touchstart', hold, { passive: true }); pg.addEventListener('pointerdown', hold);
+  pg.addEventListener('scroll', () => {
+    const i = Math.round(pg.scrollLeft / Math.max(1, pg.clientWidth));
+    if (i !== (state.dpage || 0)) {   // meteen onthouden, zodat een nieuwe tekening op dezelfde stap blijft
+      state.dpage = i;
+      el.querySelectorAll('.ddots i').forEach((d, k) => d.classList.toggle('on', k === i));
+    }
+    clearTimeout(t);
+    t = setTimeout(() => { state.swiping = false; if (state.flown !== state.dpage) { state.flown = state.dpage; flyPage(state.dpage); } }, 160);
+  }, { passive: true });
+}
+function flyPage(i) {
+  if (!mapReady) return;
+  const p = state.pages && state.pages[i];
+  if (!p) return liveCamera();
+  let c = p.at, z = 15;
+  if (p.leg) { const v = legPoint(p.leg, Date.now()); if (v) { c = v; const d = distM({ lon: v[0], lat: v[1] }, p.leg.from); z = d > 20000 ? 10.5 : d > 5000 ? 12 : 14.5; } }   // waar je bus of trein nu is
+  if (!c || c[0] == null) return;
+  const h = $('#sheet').getBoundingClientRect().height;
+  map.easeTo({ center: c, zoom: z, padding: { top: 90, bottom: Math.min(h, innerHeight - 200) + 10, left: 20, right: 20 }, duration: 900 });
 }
 
 /* ---------- opgeslagen lijnen ---------- */

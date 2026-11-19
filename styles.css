@@ -601,3 +601,15 @@ body[data-view=plan] .sheet{max-height:calc(100dvh - 300px - env(safe-area-inset
 #vehcard{box-sizing:border-box;max-width:calc(100vw - 24px);min-width:0}
 #vehcard > *{min-width:0;max-width:100%}
 .vtrain.ns{width:100%;max-width:100%;box-sizing:border-box}
+
+/* v43: veegbare stappen met bolletjes */
+.dpager{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;margin:0 -16px;overscroll-behavior-x:contain}
+.dpager::-webkit-scrollbar{display:none}
+.dpage{flex:0 0 100%;scroll-snap-align:center;scroll-snap-stop:always;box-sizing:border-box;padding:0 16px;min-width:0}
+.pg-ic{width:64px;height:64px;border-radius:50%;margin:14px auto 12px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
+.pg-ic .ic{width:30px;height:30px}
+.dpage .dsub .tag{margin-left:6px}
+.dpage .facts{margin:14px 0 0;text-align:left}
+.ddots{display:flex;justify-content:center;gap:7px;margin:14px 0 4px}
+.ddots i{width:7px;height:7px;border-radius:50%;background:var(--accent-soft);transition:width .2s,background .2s}
+.ddots i.on{width:20px;border-radius:4px;background:var(--accent)}
